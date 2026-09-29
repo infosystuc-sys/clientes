@@ -85,136 +85,163 @@ function openPrintWindow(html: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// Recibos: por duplicado. Cada cuota sale dos veces (ORIGINAL y luego
-// DUPLICADO), uno debajo del otro, cada uno ocupando el ancho de la hoja.
+// Recibos: por duplicado. Cada cuota sale dos veces (ORIGINAL y DUPLICADO)
+// lado a lado; se completa la hoja con tantas filas como entren.
 // ---------------------------------------------------------------------------
+
+/**
+ * Filas por hoja y su alto. 5 filas de 52mm + 4 espacios de 3mm = 272mm,
+ * contra ~281mm imprimibles de una A4 (297mm - 2×8mm de margen): colchón de
+ * 9mm para que el redondeo del motor de impresión no empuje la última fila a
+ * una hoja aparte (el mismo margen que ya funcionó en los diseños previos).
+ */
+const FILAS_POR_HOJA = 5;
+const ALTO_FILA_MM = 52;
+const GAP_FILA_MM = 3;
 
 const RECIBO_CSS = `
   @page { size: A4 portrait; margin: 8mm; }
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #000; font-size: 8.5pt; }
-  /*
-   * 4 recibos de 65mm + 3 espacios de 4mm = 272mm, contra ~281mm imprimibles
-   * de una A4 (297mm - 2×8mm de margen): mismo colchón de 9mm que ya se usaba
-   * con 3 recibos de 88mm, para que el redondeo del motor de impresión no
-   * empuje el último recibo a una hoja aparte.
-   */
-  .recibo {
+  body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #000; }
+
+  .fila {
     position: relative;
-    height: 65mm; border: 1.2px solid #000; margin-bottom: 4mm;
-    display: flex; flex-direction: column; page-break-inside: avoid;
+    display: grid; grid-template-columns: 1fr 1fr; column-gap: 3mm;
+    height: ${ALTO_FILA_MM}mm; margin-bottom: ${GAP_FILA_MM}mm;
+    page-break-inside: avoid;
   }
-  .recibo.fin-de-hoja { margin-bottom: 0; page-break-after: always; }
-  .recibo:last-of-type { page-break-after: auto; }
-  .corte { border-bottom: 1px dashed #888; margin: -2mm 0 2mm; height: 0; }
+  .fila.fin-de-hoja { margin-bottom: 0; page-break-after: always; }
+  .fila:last-of-type { page-break-after: auto; }
+  /* Guía de corte vertical, centrada en el espacio entre columnas */
+  .fila::before {
+    content: ''; position: absolute; top: 0; bottom: 0; left: 50%;
+    border-left: 1px dashed #999;
+  }
+  /* Guía de corte horizontal entre filas de la misma hoja */
+  .corte-h { border-bottom: 1px dashed #999; margin: -1.5mm 0 1.5mm; height: 0; }
 
+  .recibo {
+    position: relative; border: 1px solid #000; overflow: hidden;
+    display: flex; flex-direction: column; font-size: 6.8pt;
+  }
   .etiqueta {
-    position: absolute; top: 1.3mm; right: 1.3mm; z-index: 1;
-    font-size: 6.5pt; font-weight: bold; letter-spacing: 0.4px;
-    padding: 0.3mm 2mm; border: 1px solid #000; border-radius: 2.5mm; background: #fff;
+    position: absolute; top: 1mm; right: 1mm; z-index: 1;
+    font-size: 5.8pt; font-weight: bold; letter-spacing: 0.3px;
+    padding: 0.2mm 1.5mm; border: 1px solid #000; border-radius: 2mm; background: #fff;
   }
 
-  .logo .texto { display: none; }
-  .cabecera { display: flex; align-items: center; border-bottom: 1.2px solid #000; height: 15mm; }
-  .cabecera .logo { width: 40mm; height: 100%; display: flex; align-items: center; justify-content: center; border-right: 1px solid #000; }
-  .cabecera .logo img { max-width: 36mm; max-height: 12mm; }
-  .cabecera .logo .texto { font-size: 11pt; font-weight: bold; color: #1e3a8a; }
-  .cabecera .cliente { flex: 1; padding: 0 3mm; min-width: 0; }
-  .cabecera .meta { display: flex; justify-content: space-between; padding-right: 19mm; font-size: 6.3pt; }
-  .cabecera .nombre { font-size: 12pt; font-weight: bold; margin-top: 0.8mm; text-transform: uppercase; line-height: 1.15; }
-  .datos { padding: 0.8mm 2.5mm; border-bottom: 1.2px solid #000; line-height: 1.3; font-size: 7.5pt; }
-  .datos b { display: inline-block; min-width: 17mm; }
-  .datos .fila span + span b { min-width: 0; margin-right: 1mm; }
-  .datos .fila { display: flex; gap: 4mm; }
+  .cabecera { display: flex; justify-content: space-between; align-items: flex-start; padding: 1.2mm 2mm 1mm; border-bottom: 1px solid #000; }
+  .cabecera .empresa { display: flex; align-items: center; gap: 1.3mm; min-width: 0; }
+  .cabecera .empresa img { max-width: 20mm; max-height: 7mm; }
+  .cabecera .empresa .texto { display: none; font-size: 8pt; font-weight: bold; color: #1e3a8a; }
+  .cabecera .info-der { text-align: right; padding-right: 17mm; line-height: 1.35; white-space: nowrap; }
+  .cabecera .vence { font-size: 7.6pt; font-weight: bold; }
+  .cabecera .zona, .cabecera .tel { font-size: 6.2pt; color: #222; }
+
+  /* El nombre siempre en una sola línea (con puntos suspensivos si es muy largo):
+     dejarlo wrapear a 2 líneas empuja el resto del recibo y desborda la altura fija. */
+  .cliente-row { display: flex; align-items: baseline; gap: 2mm; padding: 0.8mm 2mm; border-bottom: 1px solid #000; }
+  .cliente-row .num { font-size: 6.2pt; color: #333; white-space: nowrap; flex-shrink: 0; }
+  .cliente-row .nombre {
+    font-size: 9pt; font-weight: bold; text-transform: uppercase; line-height: 1.1;
+    flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .direccion { padding: 0.8mm 2mm; border-bottom: 1px solid #000; line-height: 1.35; }
+  .direccion b { font-weight: bold; }
+
   table { width: 100%; border-collapse: collapse; }
-  th, td { border: 1px solid #000; padding: 0.5mm 1mm; text-align: left; }
-  th { font-size: 6.3pt; background: #f1f1f1; }
-  .resumen td { font-size: 7.3pt; }
-  .cuota { padding: 0.8mm 2.5mm; border-bottom: 1.2px solid #000; font-size: 7.8pt; }
-  .cuota b { font-size: 8.8pt; }
-  /* Firma e importes: espacio fijo y compacto, ya no se lleva la mitad del recibo. */
-  .manual { height: 16mm; display: flex; }
-  .manual div { flex: 1; border-right: 1px solid #000; padding: 0.8mm 2mm; font-weight: bold; font-size: 7.3pt; }
+  th, td { border: 1px solid #000; padding: 0.4mm 0.8mm; text-align: left; }
+  th { font-size: 5.6pt; background: #f1f1f1; font-weight: 600; }
+  td { font-size: 6.3pt; }
+
+  .plan-row { display: flex; justify-content: space-between; gap: 2mm; padding: 0.8mm 2mm; border-bottom: 1px solid #000; line-height: 1.4; }
+  .plan-row .der { text-align: right; white-space: nowrap; }
+
+  /* Firma e importe: espacio fijo para completar a mano. */
+  .manual { flex: 1; display: flex; }
+  .manual div { flex: 1; border-right: 1px solid #000; padding: 1mm 1.5mm; font-weight: bold; font-size: 6.3pt; display: flex; align-items: center; }
   .manual div:last-child { border-right: 0; }
+
   @media screen {
     body { background: #e5e7eb; padding: 10mm; }
-    .recibo { background: #fff; max-width: 194mm; margin-left: auto; margin-right: auto; }
+    .fila { max-width: 194mm; margin-left: auto; margin-right: auto; }
+    .recibo { background: #fff; }
   }
 `;
 
-function reciboHtml(
-  r: Rendicion,
-  item: RendicionItem,
-  logo: string,
-  duplicado: boolean,
-  finDeHoja: boolean
-): string {
-  const plan =
-    item.cuotas_total && item.valor_cuota
-      ? `${item.cuotas_total} cuotas semanales de ${money(item.valor_cuota)}`
-      : '—';
+function reciboHtml(r: Rendicion, item: RendicionItem, logo: string, duplicado: boolean): string {
+  const credito =
+    !item.credito_numero || item.credito_numero === 0
+      ? 'Plan original'
+      : `Renovación N° ${item.credito_numero}`;
 
   return `
-  <section class="recibo${finDeHoja ? ' fin-de-hoja' : ''}">
-    <span class="etiqueta">${duplicado ? 'DUPLICADO' : 'ORIGINAL'}</span>
-    <div class="cabecera">
-      <div class="logo">
-        <img src="${esc(logo)}" alt="${esc(EMPRESA.nombre)}"
-             onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-        <span class="texto">${esc(EMPRESA.nombre)}</span>
-      </div>
-      <div class="cliente">
-        <div class="meta">
-          <span>CLIENTE N° ${esc(clienteCredito(item))}</span>
-          <span>PLANILLA ${esc(r.numero)} · RECIBO ${esc(item.numero_recibo)}</span>
+      <section class="recibo">
+        <span class="etiqueta">${duplicado ? 'DUPLICADO' : 'ORIGINAL'}</span>
+        <div class="cabecera">
+          <div class="empresa">
+            <img src="${esc(logo)}" alt="${esc(EMPRESA.nombre)}"
+                 onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+            <span class="texto">${esc(EMPRESA.nombre)}</span>
+          </div>
+          <div class="info-der">
+            <div class="vence">VENCE ${esc(formatDate(item.vencimiento))}</div>
+            <div class="zona">${esc(item.zona || 'Sin zona')}</div>
+            <div class="tel">Tel: ${esc(item.telefono || '—')}</div>
+          </div>
         </div>
-        <div class="nombre">${esc(item.cliente_nombre)}</div>
-      </div>
-    </div>
 
-    <div class="datos">
-      <div><b>DOMICILIO:</b> ${esc(item.domicilio)}</div>
-      <div class="fila">
-        <span><b>RUBRO:</b> ${esc(item.rubro || '—')}</span>
-        <span><b>TELÉFONO:</b> ${esc(item.telefono)}</span>
-      </div>
-      <div class="fila">
-        <span><b>PLAN:</b> ${esc(plan)}</span>
-        <span><b>ZONA:</b> ${esc(item.zona || '—')}</span>
-        <span><b>COBRADOR:</b> ${esc(item.cobrador || '—')}</span>
-      </div>
-    </div>
+        <div class="cliente-row">
+          <span class="num">Cliente: ${esc(clienteCredito(item))}</span>
+          <span class="nombre">${esc(item.cliente_nombre)}</span>
+        </div>
 
-    <table class="resumen">
-      <tr>
-        <th>FECHA EMISIÓN</th><th>COMPRA</th><th>PAGADO</th><th>SALDO</th><th>ÚLT. PAGO</th><th>ATRASO</th>
-      </tr>
-      <tr>
-        <td>${esc(formatDate(item.fecha_otorgamiento))}</td>
-        <td>${esc(money(item.prestamo_total))}</td>
-        <td>${esc(money(item.prestamo_pagado))}</td>
-        <td>${esc(money(item.prestamo_saldo))}</td>
-        <td>${esc(formatDate(item.ultimo_pago))}</td>
-        <td>${esc(Number(item.atraso) > 0 ? money(item.atraso) : '—')}</td>
-      </tr>
-    </table>
+        <div class="direccion">
+          <div><b>Direc. comercial:</b> ${esc(item.domicilio)}</div>
+          <div><b>Producto:</b> ${esc(item.rubro || '—')}</div>
+        </div>
 
-    <div class="cuota">
-      CUOTA N° <b>${esc(item.cuota_numero ?? '—')}</b> de ${esc(item.cuotas_total ?? '—')}
-      &nbsp;·&nbsp; VENCE <b>${esc(formatDate(item.vencimiento))}</b>
-      &nbsp;·&nbsp; A COBRAR <b>${esc(money(item.importe))}</b>
-    </div>
+        <table>
+          <tr>
+            <th>Fecha</th><th>Compra</th><th>Pagado</th><th>Saldo</th><th>Últ. pago</th><th>Atraso</th>
+          </tr>
+          <tr>
+            <td>${esc(formatDate(item.fecha_otorgamiento))}</td>
+            <td>${esc(money(item.prestamo_total))}</td>
+            <td>${esc(money(item.prestamo_pagado))}</td>
+            <td>${esc(money(item.prestamo_saldo))}</td>
+            <td>${esc(formatDate(item.ultimo_pago))}</td>
+            <td>${esc(Number(item.atraso) > 0 ? money(item.atraso) : '—')}</td>
+          </tr>
+        </table>
 
-    <!-- Espacio para completar a mano -->
-    <div class="manual">
-      <div>FECHA:</div>
-      <div>IMPORTE:</div>
-      <div>CANCELACIÓN:</div>
-    </div>
-  </section>`;
+        <div class="plan-row">
+          <div>
+            Plan: <b>${esc(item.cuotas_total ?? '—')} semanas: ${esc(money(item.valor_cuota))}</b><br>
+            A cobrar: <b>${esc(money(item.importe))}</b>
+          </div>
+          <div class="der">
+            ${esc(credito)}<br>
+            Cancelación: <b>${esc(formatDate(item.vencimiento))}</b>
+          </div>
+        </div>
+
+        <!-- Espacio para completar a mano -->
+        <div class="manual">
+          <div>FECHA: ___/___/___</div>
+          <div>IMPORTE: $__________</div>
+        </div>
+      </section>`;
 }
 
-const RECIBOS_POR_HOJA = 4;
+/** Una fila = un recibo por duplicado: ORIGINAL a la izquierda, DUPLICADO a la derecha. */
+function filaHtml(r: Rendicion, item: RendicionItem, logo: string, finDeHoja: boolean): string {
+  return `
+  <div class="fila${finDeHoja ? ' fin-de-hoja' : ''}">${reciboHtml(r, item, logo, false)}
+${reciboHtml(r, item, logo, true)}
+  </div>`;
+}
 
 /** HTML de los recibos. Función pura: no toca `window`, se puede probar aparte. */
 export function buildRecibosHtml(
@@ -223,19 +250,13 @@ export function buildRecibosHtml(
   logo: string,
   autoPrint = true
 ): string {
-  // Cada cuota entra dos veces seguidas: primero el ORIGINAL, después el DUPLICADO.
-  const entradas = items.flatMap(item => [
-    { item, duplicado: false },
-    { item, duplicado: true },
-  ]);
-
-  const body = entradas
-    .map(({ item, duplicado }, idx) => {
-      const finDeHoja = (idx + 1) % RECIBOS_POR_HOJA === 0;
-      const html = reciboHtml(rendicion, item, logo, duplicado, finDeHoja);
-      const esUltimo = idx === entradas.length - 1;
-      // La línea de corte va sólo entre recibos de la misma hoja
-      return finDeHoja || esUltimo ? html : `${html}\n  <div class="corte"></div>`;
+  const body = items
+    .map((item, idx) => {
+      const finDeHoja = (idx + 1) % FILAS_POR_HOJA === 0;
+      const html = filaHtml(rendicion, item, logo, finDeHoja);
+      const esUltimo = idx === items.length - 1;
+      // La línea de corte horizontal va sólo entre filas de la misma hoja
+      return finDeHoja || esUltimo ? html : `${html}\n  <div class="corte-h"></div>`;
     })
     .join('\n');
   return buildDocument(`Recibos - Planilla ${rendicion.numero}`, body, RECIBO_CSS, autoPrint);

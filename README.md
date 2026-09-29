@@ -32,10 +32,11 @@ Supabase (PostgreSQL).
 4. **Recibos y Rendición** — se emite una **planilla** por cobrador y/o zona para un rango
    de fechas: un recibo por cada cuota impaga que vence en ese lapso (opcionalmente también
    las atrasadas). Se imprimen los recibos **por duplicado**: cada cuota sale dos veces
-   seguidas (ORIGINAL para el cliente, DUPLICADO para la rendición), uno debajo del otro
-   ocupando el ancho completo de la hoja A4 (4 por hoja — siempre 2 pares completos, el
-   duplicado de una cuota nunca queda en la hoja siguiente), con guías de corte y espacio en
-   blanco para anotar a mano fecha, importe y cancelación. También se imprime la planilla
+   lado a lado (ORIGINAL para el cliente, DUPLICADO para la rendición) — 5 cuotas por
+   hoja A4, 10 recibos físicos, completando la hoja con las que entren. El modelo del
+   recibo (vencimiento, N° de cliente/crédito, dirección comercial, producto, cuenta
+   corriente del préstamo, plan y casilleros en blanco para fecha e importe) sigue el
+   formato de talonario en papel que ya usaba el negocio. También se imprime la planilla
    de ruta. Cuando el cobrador vuelve, se
    **rinde**: se carga lo cobrado en cada recibo y el sistema registra todos los pagos en una
    sola transacción. Lo no cobrado vuelve a quedar disponible para la próxima planilla. Una
