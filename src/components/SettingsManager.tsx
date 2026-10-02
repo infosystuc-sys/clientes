@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Map as MapIcon,
   UserCheck,
@@ -80,10 +80,17 @@ function CatalogPanel<T extends SimpleItem>({
   const [nuevaDescripcion, setNuevaDescripcion] = useState('');
   const [editId, setEditId] = useState<string | null>(null);
   const [editNombre, setEditNombre] = useState('');
+  const nombreRef = useRef<HTMLInputElement>(null);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nuevoNombre.trim()) return;
+    // El botón "+" queda siempre activo (no se puede "tocar y que no pase nada"):
+    // si todavía no se escribió el nombre, llevamos el foco ahí en vez de
+    // bloquear el botón en silencio.
+    if (!nuevoNombre.trim()) {
+      nombreRef.current?.focus();
+      return;
+    }
     await onCreate({
       nombre: nuevoNombre.trim(),
       descripcion: nuevaDescripcion.trim() || undefined,
@@ -107,6 +114,7 @@ function CatalogPanel<T extends SimpleItem>({
       <form onSubmit={handleCreate} className="p-4 space-y-2 border-b border-slate-800">
         <div className="flex items-center gap-2">
           <input
+            ref={nombreRef}
             type="text"
             value={nuevoNombre}
             onChange={e => setNuevoNombre(e.target.value)}
@@ -115,8 +123,7 @@ function CatalogPanel<T extends SimpleItem>({
           />
           <button
             type="submit"
-            disabled={!nuevoNombre.trim()}
-            className="p-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white transition-colors shrink-0"
+            className="p-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white transition-colors shrink-0"
             title="Agregar"
           >
             <Plus className="w-4 h-4" />
@@ -227,10 +234,16 @@ export const SettingsManager: React.FC<SettingsManagerProps> = ({
   const [editCobradorNombre, setEditCobradorNombre] = useState('');
   const [editCobradorTelefono, setEditCobradorTelefono] = useState('');
   const [editCobradorZona, setEditCobradorZona] = useState('');
+  const nuevoCobradorRef = useRef<HTMLInputElement>(null);
 
   const handleCreateCobrador = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nuevoCobrador.trim()) return;
+    // Igual que en CatalogPanel: el botón "+" siempre responde. Sin nombre
+    // todavía, lleva el foco al campo en vez de quedarse "muerto".
+    if (!nuevoCobrador.trim()) {
+      nuevoCobradorRef.current?.focus();
+      return;
+    }
     await onCreateCobrador({
       nombre: nuevoCobrador.trim(),
       telefono: nuevoTelefono || undefined,
@@ -291,6 +304,7 @@ export const SettingsManager: React.FC<SettingsManagerProps> = ({
           <form onSubmit={handleCreateCobrador} className="p-4 space-y-2 border-b border-slate-800">
             <div className="flex items-center gap-2">
               <input
+                ref={nuevoCobradorRef}
                 type="text"
                 value={nuevoCobrador}
                 onChange={e => setNuevoCobrador(e.target.value)}
@@ -299,8 +313,7 @@ export const SettingsManager: React.FC<SettingsManagerProps> = ({
               />
               <button
                 type="submit"
-                disabled={!nuevoCobrador.trim()}
-                className="p-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white transition-colors shrink-0"
+                className="p-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shrink-0"
                 title="Agregar cobrador"
               >
                 <Plus className="w-4 h-4" />
