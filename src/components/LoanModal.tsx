@@ -4,13 +4,12 @@ import { Client, Loan, LoanInput } from '../types/database';
 import { CatalogSelect } from './CatalogSelect';
 import {
   addWeeks,
+  buildSchedule,
   formatDate,
   formatMoney,
-  installmentAmount,
   rateFromTotal,
   round2,
   today,
-  totalFromRate,
 } from '../lib/loanMath';
 
 interface LoanModalProps {
@@ -37,9 +36,9 @@ export const LoanModal: React.FC<LoanModalProps> = ({
 }) => {
   const [clientId, setClientId] = useState('');
   const [principal, setPrincipal] = useState<number>(0);
-  const [interestRate, setInterestRate] = useState<number>(40);
-  const [totalAmount, setTotalAmount] = useState<number>(0);
   const [installmentsCount, setInstallmentsCount] = useState<number>(12);
+  /** Lo que paga el cliente cada semana; el total sale de cuota × cantidad. */
+  const [cuota, setCuota] = useState<number>(0);
   const [fechaOtorgamiento, setFechaOtorgamiento] = useState(today());
   const [startDate, setStartDate] = useState(addWeeks(today(), 1));
   const [cobrador, setCobrador] = useState('');
@@ -54,9 +53,8 @@ export const LoanModal: React.FC<LoanModalProps> = ({
     if (initialLoan) {
       setClientId(initialLoan.client_id);
       setPrincipal(Number(initialLoan.principal) || 0);
-      setInterestRate(Number(initialLoan.interest_rate) || 0);
-      setTotalAmount(Number(initialLoan.total_amount) || 0);
       setInstallmentsCount(initialLoan.installments_count || 1);
+      setCuota(Number(initialLoan.installment_amount) || 0);
       setFechaOtorgamiento(initialLoan.fecha_otorgamiento || initialLoan.created_at.slice(0, 10));
       setStartDate(initialLoan.start_date || addWeeks(today(), 1));
       setCobrador(initialLoan.cobrador || '');
@@ -64,9 +62,8 @@ export const LoanModal: React.FC<LoanModalProps> = ({
     } else {
       setClientId(defaultClientId || clients[0]?.id || '');
       setPrincipal(0);
-      setInterestRate(40);
-      setTotalAmount(0);
       setInstallmentsCount(12);
+      setCuota(0);
       setFechaOtorgamiento(today());
       setStartDate(addWeeks(today(), 1));
       setCobrador('');
@@ -82,36 +79,43 @@ export const LoanModal: React.FC<LoanModalProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId]);
 
+  // Un aviso de validación deja de valer en cuanto se corrigen los datos
+  useEffect(() => setError(null), [principal, installmentsCount, cuota, startDate]);
+
   if (!isOpen) return null;
 
-  /** Capital y % mandan: el total se recalcula. */
-  const applyPrincipal = (value: number) => {
-    setPrincipal(value);
-    setTotalAmount(totalFromRate(value, interestRate));
-  };
-
-  const applyRate = (value: number) => {
-    setInterestRate(value);
-    setTotalAmount(totalFromRate(principal, value));
-  };
-
-  /** Si escriben el total a mano, el % se deduce de ahí. */
-  const applyTotal = (value: number) => {
-    setTotalAmount(value);
-    setInterestRate(rateFromTotal(principal, value));
-  };
-
-  const cuota = installmentAmount(totalAmount, installmentsCount);
-  const ultimaCuota = round2(totalAmount - cuota * (installmentsCount - 1));
-  const ultimoVencimiento = startDate ? addWeeks(startDate, installmentsCount - 1) : '';
+  // El préstamo se arma con capital, cantidad de cuotas y valor de la cuota:
+  // el total y el recargo se deducen, no se cargan.
+  const totalAmount = round2(cuota * installmentsCount);
   const ganancia = round2(totalAmount - principal);
-
-  const canSubmit = Boolean(clientId && principal > 0 && totalAmount > 0 && installmentsCount > 0);
+  const recargo = rateFromTotal(principal, totalAmount);
+  const plan =
+    cuota > 0 && installmentsCount > 0 && startDate
+      ? buildSchedule({
+          total_amount: totalAmount,
+          installments_count: installmentsCount,
+          installment_amount: cuota,
+          start_date: startDate,
+        })
+      : [];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canSubmit) {
-      setError('Elegí un cliente y cargá capital, total y cantidad de cuotas.');
+    const faltante = !clientId
+      ? 'Elegí un cliente.'
+      : !(principal > 0)
+        ? 'Cargá el capital entregado.'
+        : !(installmentsCount >= 1 && installmentsCount <= 104)
+          ? 'La cantidad de cuotas va de 1 a 104.'
+          : !(cuota > 0)
+            ? 'Cargá el monto de la cuota.'
+            : !startDate
+              ? 'Cargá el vencimiento de la primera cuota.'
+              : totalAmount < principal
+                ? `Las cuotas suman ${formatMoney(totalAmount)}, menos que el capital entregado.`
+                : null;
+    if (faltante) {
+      setError(faltante);
       return;
     }
 
@@ -121,10 +125,10 @@ export const LoanModal: React.FC<LoanModalProps> = ({
       await onSave({
         client_id: clientId,
         principal: round2(principal),
-        interest_rate: round2(interestRate),
-        total_amount: round2(totalAmount),
+        interest_rate: recargo,
+        total_amount: totalAmount,
         installments_count: installmentsCount,
-        installment_amount: cuota,
+        installment_amount: round2(cuota),
         fecha_otorgamiento: fechaOtorgamiento,
         start_date: startDate,
         cobrador: cobrador.trim() || undefined,
@@ -217,7 +221,7 @@ export const LoanModal: React.FC<LoanModalProps> = ({
             )}
           </div>
 
-          {/* Montos */}
+          {/* Capital, cuotas y valor de la cuota */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="space-y-1">
               <label className="text-xs font-semibold text-slate-300">
@@ -225,62 +229,58 @@ export const LoanModal: React.FC<LoanModalProps> = ({
               </label>
               <input
                 type="number"
-                required
                 min={0}
                 step="0.01"
                 value={principal || ''}
-                onChange={e => applyPrincipal(Number(e.target.value))}
+                onChange={e => setPrincipal(Number(e.target.value))}
                 className={inputClass}
                 placeholder="100000"
               />
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-300">Recargo %</label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={interestRate}
-                onChange={e => applyRate(Number(e.target.value))}
-                className={inputClass}
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-300">
-                Total a devolver <span className="text-rose-400">*</span>
-              </label>
-              <input
-                type="number"
-                required
-                min={0}
-                step="0.01"
-                value={totalAmount || ''}
-                onChange={e => applyTotal(Number(e.target.value))}
-                className={inputClass}
-                placeholder="140000"
-              />
-            </div>
-          </div>
-          <p className="text-[11px] text-slate-500">
-            Podés cargar el recargo en % o escribir el total a mano: el otro campo se ajusta solo.
-          </p>
-
-          {/* Plan de cuotas */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-slate-800">
-            <div className="space-y-1">
               <label className="text-xs font-semibold text-slate-300">
                 Cuotas semanales <span className="text-rose-400">*</span>
               </label>
               <input
                 type="number"
-                required
                 min={1}
                 max={104}
-                value={installmentsCount}
-                onChange={e => setInstallmentsCount(Number(e.target.value))}
+                value={installmentsCount || ''}
+                onChange={e => setInstallmentsCount(Math.trunc(Number(e.target.value)))}
                 className={inputClass}
+                placeholder="12"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-300">
+                Monto de la cuota <span className="text-rose-400">*</span>
+              </label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={cuota || ''}
+                onChange={e => setCuota(Number(e.target.value))}
+                className={inputClass}
+                placeholder="12000"
+              />
+            </div>
+          </div>
+
+          {/* Fechas y cobrador */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-slate-800">
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-300">
+                Vence la 1ª cuota <span className="text-rose-400">*</span>
+              </label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={e => setStartDate(e.target.value)}
+                className={inputClass}
+                title="Las demás cuotas vencen cada 7 días a partir de esta fecha."
               />
             </div>
 
@@ -289,25 +289,9 @@ export const LoanModal: React.FC<LoanModalProps> = ({
               <input
                 type="date"
                 value={fechaOtorgamiento}
-                onChange={e => {
-                  // La primera cuota acompaña a la semana siguiente, salvo que ya la hayan movido
-                  if (startDate === addWeeks(fechaOtorgamiento, 1)) {
-                    setStartDate(addWeeks(e.target.value, 1));
-                  }
-                  setFechaOtorgamiento(e.target.value);
-                }}
+                onChange={e => setFechaOtorgamiento(e.target.value)}
                 className={inputClass}
                 title="Día en que se entregó la plata. Sale como FECHA EMISIÓN en el recibo."
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-300">Primera cuota vence</label>
-              <input
-                type="date"
-                value={startDate}
-                onChange={e => setStartDate(e.target.value)}
-                className={inputClass}
               />
             </div>
 
@@ -327,13 +311,14 @@ export const LoanModal: React.FC<LoanModalProps> = ({
             />
           </div>
 
-          {/* Resumen calculado */}
-          {totalAmount > 0 && installmentsCount > 0 && (
-            <div className="p-4 rounded-xl bg-emerald-950/20 border border-emerald-500/20 space-y-2">
+          {/* Plan resultante */}
+          {plan.length > 0 && (
+            <div className="p-4 rounded-xl bg-emerald-950/20 border border-emerald-500/20 space-y-3">
               <div className="flex items-center gap-2 text-emerald-300 text-xs font-bold">
                 <CalendarClock className="w-4 h-4" />
                 <span>
-                  {installmentsCount} cuotas semanales de {formatMoney(cuota)}
+                  {installmentsCount} cuotas semanales de {formatMoney(cuota)}, del{' '}
+                  {formatDate(plan[0].due_date)} al {formatDate(plan[plan.length - 1].due_date)}
                 </span>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-[11px]">
@@ -347,18 +332,29 @@ export const LoanModal: React.FC<LoanModalProps> = ({
                 </div>
                 <div>
                   <span className="text-slate-400 block">Ganancia</span>
-                  <span className="text-emerald-400 font-bold">{formatMoney(ganancia)}</span>
+                  <span className={`font-bold ${ganancia < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                    {formatMoney(ganancia)}
+                  </span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block">Última cuota</span>
-                  <span className="text-white font-bold">{formatDate(ultimoVencimiento)}</span>
+                  <span className="text-slate-400 block">Recargo</span>
+                  <span className="text-white font-bold">{principal > 0 ? `${recargo}%` : '—'}</span>
                 </div>
               </div>
-              {ultimaCuota !== cuota && (
-                <p className="text-[11px] text-slate-400">
-                  La última cuota ajusta a {formatMoney(ultimaCuota)} para cerrar el total exacto.
-                </p>
-              )}
+              <details className="text-[11px]" open={!initialLoan && plan.length <= 16}>
+                <summary className="cursor-pointer text-slate-400 hover:text-slate-200">
+                  Ver plan de cuotas
+                </summary>
+                <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-1 font-mono">
+                  {plan.map(c => (
+                    <div key={c.number} className="flex justify-between gap-2 text-slate-300">
+                      <span className="text-slate-500">{String(c.number).padStart(2, '0')}</span>
+                      <span>{formatDate(c.due_date).slice(0, 5)}</span>
+                      <span>{formatMoney(c.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              </details>
             </div>
           )}
 
@@ -383,7 +379,7 @@ export const LoanModal: React.FC<LoanModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || !canSubmit}
+              disabled={isSubmitting}
               className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold shadow-lg shadow-emerald-600/25 transition-all"
             >
               {isSubmitting ? 'Guardando...' : initialLoan ? 'Guardar Cambios' : 'Otorgar Préstamo'}

@@ -19,10 +19,13 @@ Supabase (PostgreSQL).
    atajo "Usar la zona del cobrador". Los tres selects tienen un **+** que da de
    alta el ítem sin salir del formulario. El **rubro también se edita desde la ficha del
    cliente**, y se guarda al elegirlo.
-2. **Préstamos** — se carga la fecha de otorgamiento, el capital entregado y el recargo (o
-   el total a devolver directamente) y la cantidad de cuotas semanales. Al guardar, **la base genera sola el
-   plan de cuotas**, una cada 7 días a partir de la fecha elegida. La última cuota absorbe
-   la diferencia de redondeo para que el total cierre exacto.
+2. **Préstamos** — se carga el **capital entregado**, la **cantidad de cuotas semanales**,
+   el **monto de la cuota** y el **vencimiento de la primera cuota** (más la fecha de
+   otorgamiento). No se carga porcentaje: el total a devolver es cuota × cantidad, y el
+   recargo y la ganancia se muestran como dato informativo. El formulario muestra el plan
+   completo antes de guardar y no deja otorgar si las cuotas no cubren el capital. Al
+   guardar, **la base genera sola el plan de cuotas**, una cada 7 días a partir del primer
+   vencimiento.
 3. **Cobranza** — pantalla operativa con las cuotas de la semana, filtrables por zona,
    cobrador, período y búsqueda libre. Cada cobro se registra contra una cuota; se aceptan
    **pagos parciales** y la cuota queda con saldo. Cuando todas las cuotas quedan saldadas,
