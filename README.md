@@ -11,9 +11,12 @@ Supabase (PostgreSQL).
    solo a todos los clientes y préstamos asignados (`ON UPDATE CASCADE` en la base);
    eliminar deja los registros sin asignar, no los borra.
 1. **Clientes** — alta con N° de cliente (opcional: si se deja vacío se asigna el siguiente;
-   se puede cargar a mano para conservar la numeración en papel), nombre y apellido,
-   domicilio y teléfono (obligatorios), más
-   zona, cobrador y rubro elegidos del catálogo. Los tres selects tienen un **+** que da de
+   se puede cargar a mano para conservar la numeración en papel) y nombre y apellido, que
+   es **lo único obligatorio**. Domicilio y teléfono son opcionales (el teléfono, si se
+   carga, va con 10 dígitos). Cobrador, zona y rubro se eligen del catálogo; **primero se
+   elige el cobrador y la app propone su zona** (la zona principal cargada en
+   Configuración). Si el operador ya eligió otra zona a mano no se la pisa: aparece un
+   atajo "Usar la zona del cobrador". Los tres selects tienen un **+** que da de
    alta el ítem sin salir del formulario. El **rubro también se edita desde la ficha del
    cliente**, y se guarda al elegirlo.
 2. **Préstamos** — se carga la fecha de otorgamiento, el capital entregado y el recargo (o
@@ -96,13 +99,13 @@ Si dice **Modo Demo (Local)**, no hay credenciales y los datos viven sólo en el
 |---|---|---|
 | [supabase/schema_completo.sql](supabase/schema_completo.sql) | Todo el esquema de cero | **Ya aplicado** en `ubmgpxitpsnwddplsuqw`. Para otro proyecto Supabase nuevo y vacío |
 | [supabase/seed.sql](supabase/seed.sql) | Datos de demostración | **Ya aplicado**. Opcional en otra base, después del esquema |
-| [supabase/aplicar_pendientes.sql](supabase/aplicar_pendientes.sql) | 004 a 008 juntos, re-ejecutable | Migrar un proyecto viejo (esquema pre-préstamos) al esquema actual |
+| [supabase/aplicar_pendientes.sql](supabase/aplicar_pendientes.sql) | 004 a 009 juntos, re-ejecutable | Migrar un proyecto viejo (esquema pre-préstamos) al esquema actual |
 | [supabase/migrations/003_rls_per_user.sql](supabase/migrations/003_rls_per_user.sql) | Policies multiusuario | Antes de producción con plata real (ver abajo) |
 
 El historial completo queda en [supabase/migrations/](supabase/migrations/): 001 y 002
 (esquema original, ya aplicados), 004 (alta de cliente simplificada), 005 (préstamos y
 cobranza), 006 (zonas y cobradores), 007 (rubros) y 008 (N° de cliente, fecha de
-otorgamiento, recibos y rendiciones).
+otorgamiento, recibos y rendiciones) y 009 (domicilio y teléfono opcionales).
 
 Todo el SQL está probado contra PostgreSQL 17 (la misma versión mayor que Supabase):
 `aplicar_pendientes.sql` sobre una réplica del estado actual de la base, `schema_completo.sql`

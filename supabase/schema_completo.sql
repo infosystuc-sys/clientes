@@ -46,8 +46,9 @@ create index if not exists cobradores_zona_idx on public.cobradores (zona);
 create table if not exists public.clients (
     id          uuid primary key default gen_random_uuid(),
     name        varchar(255) not null,
-    address     text not null,
-    phone       varchar(10) not null check (phone ~ '^[0-9]{10}$'),
+    -- Sólo el nombre es obligatorio; el teléfono, si se carga, va con 10 dígitos
+    address     text,
+    phone       varchar(10) check (phone ~ '^[0-9]{10}$'),
     zona        varchar(100) references public.zonas (nombre)
                 on update cascade on delete set null,
     cobrador    varchar(150) references public.cobradores (nombre)

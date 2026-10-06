@@ -6,10 +6,10 @@ export interface Client {
   numero?: number;
   /** Nombre y apellido. Obligatorio. */
   name: string;
-  /** Domicilio completo. Obligatorio. */
-  address: string;
-  /** Diez dígitos, sin separadores ni prefijo: 3813045236. Obligatorio. */
-  phone: string;
+  /** Domicilio completo. Opcional. */
+  address?: string | null;
+  /** Diez dígitos, sin separadores ni prefijo: 3813045236. Opcional. */
+  phone?: string | null;
   /** Zona de cobranza. Opcional. */
   zona?: string;
   /** Cobrador asignado. Opcional. */
@@ -31,7 +31,7 @@ export interface Client {
  * Lo que el formulario de alta envía: los tres campos obligatorios más los
  * opcionales. El resto de las columnas toma su valor por defecto en la base.
  */
-export type ClientInput = Pick<Client, 'name' | 'address' | 'phone'> & Partial<Client>;
+export type ClientInput = Pick<Client, 'name'> & Partial<Client>;
 
 // ---------------------------------------------------------------------------
 // Préstamos
@@ -114,8 +114,8 @@ export interface CollectionRow {
   client_id: string;
   loan_status: LoanStatus;
   client_name: string;
-  address: string;
-  phone: string;
+  address?: string | null;
+  phone?: string | null;
   zona?: string;
   cobrador?: string;
 }

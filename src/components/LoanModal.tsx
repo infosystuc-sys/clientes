@@ -207,7 +207,9 @@ export const LoanModal: React.FC<LoanModalProps> = ({
             </select>
             {selectedClient && (
               <p className="text-[11px] text-slate-500">
-                {selectedClient.address} · Tel. {selectedClient.phone}
+                {[selectedClient.address, selectedClient.phone && `Tel. ${selectedClient.phone}`]
+                  .filter(Boolean)
+                  .join(' · ') || 'Sin domicilio ni teléfono cargados'}
               </p>
             )}
             {clients.length === 0 && (

@@ -105,12 +105,16 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onS
           {/* Ficha del cliente */}
           <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-1.5">
             <p className="font-bold text-sm text-white">{row.client_name}</p>
-            <p className="text-[11px] text-slate-400 flex items-start gap-1.5">
-              <MapPin className="w-3 h-3 text-slate-500 shrink-0 mt-0.5" /> {row.address}
-            </p>
-            <p className="text-[11px] text-slate-400 flex items-center gap-1.5 font-mono">
-              <Phone className="w-3 h-3 text-slate-500" /> {row.phone}
-            </p>
+            {row.address && (
+              <p className="text-[11px] text-slate-400 flex items-start gap-1.5">
+                <MapPin className="w-3 h-3 text-slate-500 shrink-0 mt-0.5" /> {row.address}
+              </p>
+            )}
+            {row.phone && (
+              <p className="text-[11px] text-slate-400 flex items-center gap-1.5 font-mono">
+                <Phone className="w-3 h-3 text-slate-500" /> {row.phone}
+              </p>
+            )}
             <div className="flex items-center justify-between pt-2 border-t border-slate-800 text-[11px]">
               <span className="text-slate-400">
                 Cuota de {formatMoney(row.amount)}

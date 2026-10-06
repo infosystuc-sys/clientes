@@ -332,6 +332,7 @@ export default function App() {
 
   const zonaNames = zonas.filter(z => z.activa).map(z => z.nombre);
   const cobradorNames = cobradores.filter(c => c.activo).map(c => c.nombre);
+  const cobradorZonas = Object.fromEntries(cobradores.map(c => [c.nombre, c.zona || undefined]));
   const rubroNames = rubros.filter(r => r.activo).map(r => r.nombre);
 
   // --- Préstamos ------------------------------------------------------------
@@ -598,6 +599,7 @@ export default function App() {
         initialClient={editingClient}
         zonas={zonaNames}
         cobradores={cobradorNames}
+        cobradorZonas={cobradorZonas}
         rubros={rubroNames}
         onCreateZona={handleQuickCreateZona}
         onCreateCobrador={handleQuickCreateCobrador}

@@ -12,6 +12,7 @@
 --   migrations/006_zonas_y_cobradores.sql
 --   migrations/007_rubros.sql
 --   migrations/008_recibos_y_rendiciones.sql
+--   migrations/009_cliente_solo_nombre.sql
 -- ============================================================
 
 -- ===================================================
@@ -43,9 +44,11 @@ set phone = right(regexp_replace(phone, '\D', '', 'g'), 10)
 where phone is not null
   and phone !~ '^[0-9]{10}$';
 
--- 4. Domicilio y teléfono pasan a ser obligatorios, con formato validado
-alter table public.clients alter column address set not null;
-alter table public.clients alter column phone   set not null;
+-- 4. Teléfono con formato validado. Domicilio y teléfono son opcionales
+--    (009: sólo el nombre es obligatorio).
+alter table public.clients alter column address drop not null;
+alter table public.clients alter column phone   drop not null;
+update public.clients set address = null where btrim(address) = '';
 
 alter table public.clients drop constraint if exists clients_phone_format;
 alter table public.clients add  constraint clients_phone_format

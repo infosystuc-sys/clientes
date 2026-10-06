@@ -265,7 +265,7 @@ export const ClientList: React.FC<ClientListProps> = ({
                     <td className="py-3.5 px-4 space-y-0.5 max-w-xs">
                       <p className="flex items-start gap-1.5 text-slate-300">
                         <MapPin className="w-3 h-3 text-slate-500 shrink-0 mt-0.5" />{' '}
-                        {client.address}
+                        {client.address || <span className="text-slate-600">Sin domicilio</span>}
                       </p>
                       {client.phone && (
                         <p className="flex items-center gap-1.5 text-slate-400 text-[11px]">
@@ -380,7 +380,7 @@ export const ClientList: React.FC<ClientListProps> = ({
 
               <div className="space-y-1.5 text-xs text-slate-400 border-t border-b border-slate-800/80 py-3">
                 <p className="flex items-start gap-2">
-                  <MapPin className="w-3.5 h-3.5 text-slate-500 shrink-0 mt-0.5" /> {client.address}
+                  <MapPin className="w-3.5 h-3.5 text-slate-500 shrink-0 mt-0.5" /> {client.address || <span className="text-slate-600">Sin domicilio</span>}
                 </p>
                 {client.phone && (
                   <p className="flex items-center gap-2 font-mono">

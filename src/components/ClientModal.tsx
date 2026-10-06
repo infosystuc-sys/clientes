@@ -20,6 +20,8 @@ interface ClientModalProps {
   /** Catálogo de zonas y cobradores dados de alta en Configuración. */
   zonas: string[];
   cobradores: string[];
+  /** Zona principal de cada cobrador, para sugerirla al elegirlo. */
+  cobradorZonas: Record<string, string | undefined>;
   rubros: string[];
   /** Alta al vuelo desde el propio formulario; devuelve el nombre creado. */
   onCreateZona: (nombre: string) => Promise<string>;
@@ -41,6 +43,7 @@ export const ClientModal: React.FC<ClientModalProps> = ({
   initialClient,
   zonas,
   cobradores,
+  cobradorZonas,
   rubros,
   onCreateZona,
   onCreateCobrador,
@@ -79,13 +82,31 @@ export const ClientModal: React.FC<ClientModalProps> = ({
 
   if (!isOpen) return null;
 
+  // El teléfono es opcional, pero si se carga va completo
   const isPhoneValid = phone.length === PHONE_LENGTH;
-  const canSubmit = Boolean(name.trim() && address.trim() && isPhoneValid);
+  const isPhoneOk = !phone || isPhoneValid;
+
+  const zonaSugerida = cobrador ? cobradorZonas[cobrador] : undefined;
+
+  /**
+   * Al elegir cobrador se propone su zona, salvo que el operador ya haya
+   * elegido otra a mano: sólo se pisa una zona vacía o la del cobrador anterior.
+   */
+  const handleCobradorChange = (nuevo: string) => {
+    const zonaAnterior = cobrador ? cobradorZonas[cobrador] : undefined;
+    const zonaNueva = nuevo ? cobradorZonas[nuevo] : undefined;
+    setCobrador(nuevo);
+    if (zonaNueva && (!zona || zona === zonaAnterior)) setZona(zonaNueva);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canSubmit) {
-      setError('Completá nombre y apellido, domicilio y un teléfono de 10 dígitos.');
+    if (!name.trim()) {
+      setError('Cargá el nombre y apellido del cliente.');
+      return;
+    }
+    if (!isPhoneOk) {
+      setError('El teléfono va con 10 dígitos, o dejalo vacío.');
       return;
     }
 
@@ -96,8 +117,9 @@ export const ClientModal: React.FC<ClientModalProps> = ({
         // Vacío en un alta: la base asigna el siguiente número libre
         ...(numero ? { numero: Number(numero) } : {}),
         name: name.trim(),
-        address: address.trim(),
-        phone,
+        // null y no undefined: al editar, vaciar el campo tiene que borrarlo
+        address: address.trim() || null,
+        phone: phone || null,
         // Los opcionales van como undefined si quedaron vacíos, no como '' .
         zona: zona.trim() || undefined,
         cobrador: cobrador.trim() || undefined,
@@ -185,12 +207,11 @@ export const ClientModal: React.FC<ClientModalProps> = ({
           {/* Domicilio */}
           <div className="space-y-1">
             <label className="text-xs font-semibold text-slate-300">
-              Domicilio Completo <span className="text-rose-400">*</span>
+              Domicilio Completo
             </label>
             <div className="relative">
               <MapPin className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
               <textarea
-                required
                 rows={2}
                 placeholder="Calle, número, piso/depto, barrio y localidad"
                 value={address}
@@ -203,13 +224,12 @@ export const ClientModal: React.FC<ClientModalProps> = ({
           {/* Teléfono */}
           <div className="space-y-1">
             <label className="text-xs font-semibold text-slate-300">
-              Teléfono <span className="text-rose-400">*</span>
+              Teléfono
             </label>
             <div className="relative">
               <Phone className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="tel"
-                required
                 inputMode="numeric"
                 placeholder="3813045236"
                 value={phone}
@@ -231,29 +251,43 @@ export const ClientModal: React.FC<ClientModalProps> = ({
             </p>
           </div>
 
-          {/* Zona y Cobrador, contra el catálogo de Configuración */}
+          {/* Cobrador primero: su zona se propone sola. Contra el catálogo de Configuración */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-800">
-            <CatalogSelect
-              label="Zona"
-              value={zona}
-              onChange={setZona}
-              options={zonas}
-              onCreate={onCreateZona}
-              icon={MapIcon}
-              emptyLabel="Sin zona asignada"
-              createLabel="Nueva zona"
-            />
-
             <CatalogSelect
               label="Cobrador Asignado"
               value={cobrador}
-              onChange={setCobrador}
+              onChange={handleCobradorChange}
               options={cobradores}
               onCreate={onCreateCobrador}
               icon={UserCheck}
               emptyLabel="Sin cobrador asignado"
               createLabel="Nuevo cobrador"
             />
+
+            <div className="space-y-1">
+              <CatalogSelect
+                label="Zona"
+                value={zona}
+                onChange={setZona}
+                options={zonas}
+                onCreate={onCreateZona}
+                icon={MapIcon}
+                emptyLabel="Sin zona asignada"
+                createLabel="Nueva zona"
+              />
+              {zonaSugerida &&
+                (zona === zonaSugerida ? (
+                  <p className="text-[11px] text-emerald-400">Zona del cobrador</p>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setZona(zonaSugerida)}
+                    className="text-[11px] text-blue-400 hover:text-blue-300 underline-offset-2 hover:underline"
+                  >
+                    Usar la zona del cobrador: {zonaSugerida}
+                  </button>
+                ))}
+            </div>
           </div>
 
           <CatalogSelect
@@ -278,7 +312,7 @@ export const ClientModal: React.FC<ClientModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || !canSubmit}
+              disabled={isSubmitting}
               className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold shadow-lg shadow-blue-600/25 transition-all"
             >
               {isSubmitting ? 'Guardando...' : initialClient ? 'Guardar Cambios' : 'Crear Cliente'}

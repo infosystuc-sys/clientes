@@ -263,7 +263,7 @@ export const ClientDetailModal: React.FC<ClientDetailModalProps> = ({
                   </span>
                   <p className="text-xs font-semibold text-white flex items-start gap-1.5">
                     <MapPin className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
-                    {client.address}
+                    {client.address || '—'}
                   </p>
                 </div>
 
@@ -273,7 +273,7 @@ export const ClientDetailModal: React.FC<ClientDetailModalProps> = ({
                   </span>
                   <p className="text-xs font-semibold text-white flex items-center gap-1.5">
                     <Phone className="w-3.5 h-3.5 text-emerald-400" />
-                    <span className="font-mono tracking-wider">{client.phone}</span>
+                    <span className="font-mono tracking-wider">{client.phone || '—'}</span>
                   </p>
                 </div>
 

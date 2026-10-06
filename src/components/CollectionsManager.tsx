@@ -186,7 +186,7 @@ export const CollectionsManager: React.FC<CollectionsManagerProps> = ({
       [
         `"${r.client_name}"`,
         `"${(r.address || '').replace(/"/g, '""')}"`,
-        `"${r.phone}"`,
+        `"${r.phone || ''}"`,
         `"${r.zona || ''}"`,
         `"${r.cobrador || ''}"`,
         r.number,
@@ -404,12 +404,16 @@ export const CollectionsManager: React.FC<CollectionsManagerProps> = ({
                   <tr key={r.installment_id} className="hover:bg-slate-800/40 transition-colors">
                     <td className="py-3.5 px-4 max-w-xs">
                       <p className="font-semibold text-white">{r.client_name}</p>
-                      <p className="text-[11px] text-slate-400 flex items-start gap-1">
-                        <MapPin className="w-3 h-3 text-slate-500 shrink-0 mt-0.5" /> {r.address}
-                      </p>
-                      <p className="text-[11px] text-slate-500 flex items-center gap-1 font-mono">
-                        <Phone className="w-3 h-3" /> {r.phone}
-                      </p>
+                      {r.address && (
+                        <p className="text-[11px] text-slate-400 flex items-start gap-1">
+                          <MapPin className="w-3 h-3 text-slate-500 shrink-0 mt-0.5" /> {r.address}
+                        </p>
+                      )}
+                      {r.phone && (
+                        <p className="text-[11px] text-slate-500 flex items-center gap-1 font-mono">
+                          <Phone className="w-3 h-3" /> {r.phone}
+                        </p>
+                      )}
                     </td>
 
                     <td className="py-3.5 px-4 text-[11px]">
