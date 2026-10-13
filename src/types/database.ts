@@ -93,6 +93,8 @@ export interface Payment {
   cobrador?: string;
   method: PaymentMethod;
   notes?: string;
+  /** Pago anterior a pasar al sistema, cargado desde la edición del préstamo. */
+  saldo_inicial?: boolean;
   created_at: string;
 }
 

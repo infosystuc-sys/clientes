@@ -337,14 +337,13 @@ export default function App() {
 
   // --- Préstamos ------------------------------------------------------------
 
-  const handleSaveLoan = async (loanData: LoanInput) => {
+  const handleSaveLoan = async (loanData: LoanInput, pagado: Record<number, number> | null) => {
     const isEdit = Boolean(editingLoan);
     await runAction(async () => {
-      if (editingLoan) {
-        await loanService.updateLoan(editingLoan.id, loanData);
-      } else {
-        await loanService.createLoan(loanData);
-      }
+      const loan = editingLoan
+        ? await loanService.updateLoan(editingLoan.id, loanData)
+        : await loanService.createLoan(loanData);
+      if (pagado) await loanService.cargarSaldosIniciales(loan.id, pagado);
     }, isEdit ? 'Préstamo actualizado.' : 'Préstamo otorgado y plan de cuotas generado.');
     setEditingLoan(null);
   };

@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { X, HandCoins, AlertCircle, CalendarClock, UserCheck } from 'lucide-react';
+import { X, HandCoins, AlertCircle, CalendarClock, UserCheck, Check, Loader2 } from 'lucide-react';
 import { Client, Loan, LoanInput } from '../types/database';
 import { CatalogSelect } from './CatalogSelect';
+import { parseMonto } from './RendirModal';
+import { loanService } from '../services/loanService';
 import {
   addWeeks,
   buildSchedule,
@@ -15,7 +17,11 @@ import {
 interface LoanModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (loanData: LoanInput) => Promise<void>;
+  /**
+   * `pagado`: total pagado de cada cuota (por número), para cargar préstamos que
+   * ya venían cobrándose antes de pasar al sistema. `null` si no hay nada que fijar.
+   */
+  onSave: (loanData: LoanInput, pagado: Record<number, number> | null) => Promise<void>;
   clients: Client[];
   initialLoan?: Loan | null;
   defaultClientId?: string;
@@ -23,6 +29,9 @@ interface LoanModalProps {
   cobradores: string[];
   onCreateCobrador: (nombre: string) => Promise<string>;
 }
+
+/** Importe en el formato en que lo escribiría el operador: 6428,51. */
+const toInput = (value: number) => String(round2(value)).replace('.', ',');
 
 export const LoanModal: React.FC<LoanModalProps> = ({
   isOpen,
@@ -43,6 +52,11 @@ export const LoanModal: React.FC<LoanModalProps> = ({
   const [startDate, setStartDate] = useState(addWeeks(today(), 1));
   const [cobrador, setCobrador] = useState('');
   const [notes, setNotes] = useState('');
+  /** Lo pagado de cada cuota, como lo escribe el operador. */
+  const [pagado, setPagado] = useState<Record<number, string>>({});
+  /** Cobros reales (cobranza y rendiciones) por cuota: el pagado no puede ser menor. */
+  const [reales, setReales] = useState<Record<number, number>>({});
+  const [cargandoPagos, setCargandoPagos] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -70,6 +84,33 @@ export const LoanModal: React.FC<LoanModalProps> = ({
       setNotes('');
     }
   }, [initialLoan, defaultClientId, clients, isOpen]);
+
+  // Al editar se trae lo que ya lleva pagado cada cuota
+  useEffect(() => {
+    setPagado({});
+    setReales({});
+    if (!isOpen || !initialLoan) return;
+    let vigente = true;
+    setCargandoPagos(true);
+    loanService
+      .getPagosPorCuota(initialLoan.id)
+      .then(porCuota => {
+        if (!vigente) return;
+        const textos: Record<number, string> = {};
+        const minimos: Record<number, number> = {};
+        Object.entries(porCuota).forEach(([n, v]) => {
+          if (v.pagado > 0) textos[Number(n)] = toInput(v.pagado);
+          if (v.reales > 0) minimos[Number(n)] = v.reales;
+        });
+        setPagado(textos);
+        setReales(minimos);
+      })
+      .catch(err => vigente && setError(err?.message || 'No se pudo cargar lo pagado de cada cuota.'))
+      .finally(() => vigente && setCargandoPagos(false));
+    return () => {
+      vigente = false;
+    };
+  }, [initialLoan, isOpen]);
 
   // Al elegir cliente se propone su cobrador, sin pisar una edición manual.
   useEffect(() => {
@@ -99,6 +140,36 @@ export const LoanModal: React.FC<LoanModalProps> = ({
         })
       : [];
 
+  /** Estado de cada cuota según lo que se cargó como pagado. */
+  const cuotas = plan.map(c => {
+    const raw = (pagado[c.number] || '').trim();
+    const valor = raw ? parseMonto(raw) : 0;
+    const minimo = reales[c.number] || 0;
+    const problema = Number.isNaN(valor) || valor < 0
+      ? 'no es un importe válido'
+      : valor > c.amount
+        ? `supera el importe de la cuota (${formatMoney(c.amount)})`
+        : valor < minimo
+          ? `ya tiene cobros registrados por ${formatMoney(minimo)}`
+          : null;
+    return { ...c, valor: Number.isNaN(valor) ? 0 : round2(valor), minimo, problema };
+  });
+  const totalPagado = round2(cuotas.reduce((a, c) => a + (c.problema ? 0 : c.valor), 0));
+
+  const setPagadoCuota = (numero: number, value: string) =>
+    setPagado(prev => ({ ...prev, [numero]: value }));
+
+  const alternarPagada = (c: (typeof cuotas)[number]) =>
+    setPagadoCuota(c.number, c.valor >= c.amount ? (c.minimo > 0 ? toInput(c.minimo) : '') : toInput(c.amount));
+
+  // Para cargar un préstamo que ya venía cobrándose: todo lo vencido, pagado
+  const marcarVencidasPagadas = () =>
+    setPagado(prev => {
+      const next = { ...prev };
+      plan.filter(c => c.due_date < today()).forEach(c => (next[c.number] = toInput(c.amount)));
+      return next;
+    });
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const faltante = !clientId
@@ -113,11 +184,23 @@ export const LoanModal: React.FC<LoanModalProps> = ({
               ? 'Cargá el vencimiento de la primera cuota.'
               : totalAmount < principal
                 ? `Las cuotas suman ${formatMoney(totalAmount)}, menos que el capital entregado.`
-                : null;
+                : cuotas.find(c => c.problema)
+                  ? (() => {
+                      const c = cuotas.find(x => x.problema)!;
+                      return `Lo pagado en la cuota ${c.number} ${c.problema}.`;
+                    })()
+                  : null;
     if (faltante) {
       setError(faltante);
       return;
     }
+
+    // Al editar se mandan todas las cuotas (vaciar una también es un cambio);
+    // en un alta, sólo si se marcó alguna como pagada.
+    const pagadoPayload =
+      initialLoan || totalPagado > 0
+        ? Object.fromEntries(cuotas.map(c => [c.number, c.valor]))
+        : null;
 
     setIsSubmitting(true);
     setError(null);
@@ -133,7 +216,7 @@ export const LoanModal: React.FC<LoanModalProps> = ({
         start_date: startDate,
         cobrador: cobrador.trim() || undefined,
         notes: notes.trim() || undefined,
-      });
+      }, pagadoPayload);
       onClose();
     } catch (err: any) {
       setError(err?.message || 'No se pudo registrar el préstamo.');
@@ -172,7 +255,7 @@ export const LoanModal: React.FC<LoanModalProps> = ({
 
         <form
           onSubmit={handleSubmit}
-          className="p-5 grid grid-cols-1 md:grid-cols-[1fr_18rem] gap-5 min-h-0 overflow-y-auto"
+          className="p-5 grid grid-cols-1 md:grid-cols-[1fr_24rem] gap-5 min-h-0 overflow-y-auto"
         >
           {/* Columna izquierda: datos del préstamo */}
           <div className="space-y-3 min-w-0">
@@ -190,7 +273,8 @@ export const LoanModal: React.FC<LoanModalProps> = ({
                   Al guardar, el plan de cuotas se <strong>recalcula</strong> con estos datos. Los
                   cobros ya registrados se conservan en su cuota. Si bajás la cantidad de cuotas,
                   no puede haber cobros en las que se eliminan. Si ya imprimiste recibos de este
-                  préstamo, conservan los importes y fechas viejos.
+                  préstamo, conservan los importes y fechas viejos. En el plan podés indicar qué
+                  cuotas ya estaban pagadas (saldo inicial).
                 </span>
               </div>
             )}
@@ -392,21 +476,86 @@ export const LoanModal: React.FC<LoanModalProps> = ({
 
               {plan.length > 0 ? (
                 <>
-                  <ol className="flex-1 min-h-0 max-h-72 md:max-h-none overflow-y-auto px-3 py-1.5 font-mono text-[11px]">
-                    {plan.map(c => (
-                      <li
-                        key={c.number}
-                        className="flex items-center justify-between py-[3px] border-b border-slate-800/50 last:border-0"
-                      >
-                        <span className="text-slate-500 w-6">{String(c.number).padStart(2, '0')}</span>
-                        <span className="text-slate-300 flex-1">{formatDate(c.due_date)}</span>
-                        <span className="text-white">{formatMoney(c.amount)}</span>
-                      </li>
-                    ))}
+                  <div className="px-3 py-1.5 border-b border-slate-800 flex items-center justify-between gap-2 shrink-0">
+                    <span className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+                      Pagado {cargandoPagos && <Loader2 className="inline w-3 h-3 animate-spin" />}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={marcarVencidasPagadas}
+                      disabled={!plan.some(c => c.due_date < today())}
+                      className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[10px] text-slate-300 font-semibold disabled:opacity-40 transition-colors"
+                      title="Marca como pagadas todas las cuotas que vencieron antes de hoy"
+                    >
+                      Vencidas pagadas
+                    </button>
+                  </div>
+                  <ol className="flex-1 min-h-0 max-h-72 md:max-h-none overflow-y-auto px-3 py-1 font-mono text-[11px]">
+                    {cuotas.map(c => {
+                      const completa = !c.problema && c.valor >= c.amount;
+                      const parcial = !c.problema && c.valor > 0 && !completa;
+                      return (
+                        <li
+                          key={c.number}
+                          className="flex items-center gap-2 py-[3px] border-b border-slate-800/50 last:border-0"
+                          title={c.problema ? `Lo pagado ${c.problema}` : undefined}
+                        >
+                          <span className="text-slate-500 w-5">{String(c.number).padStart(2, '0')}</span>
+                          <span className={`flex-1 ${completa ? 'text-slate-500 line-through' : 'text-slate-300'}`}>
+                            {formatDate(c.due_date)}
+                          </span>
+                          <span className={completa ? 'text-slate-500' : 'text-white'}>{formatMoney(c.amount)}</span>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={pagado[c.number] || ''}
+                            onChange={e => setPagadoCuota(c.number, e.target.value)}
+                            placeholder="0"
+                            className={`w-20 px-1.5 py-0.5 rounded-md bg-slate-950 border text-right focus:outline-none ${
+                              c.problema
+                                ? 'border-rose-500 text-rose-300'
+                                : completa
+                                  ? 'border-emerald-600/50 text-emerald-300'
+                                  : parcial
+                                    ? 'border-amber-500/60 text-amber-200'
+                                    : 'border-slate-800 text-slate-200 focus:border-emerald-500'
+                            }`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => alternarPagada(c)}
+                            className={`p-1 rounded-md border transition-colors ${
+                              completa
+                                ? 'bg-emerald-600/30 border-emerald-500/50 text-emerald-300'
+                                : 'bg-slate-800 border-slate-700 text-slate-500 hover:text-emerald-300'
+                            }`}
+                            title={completa ? 'Desmarcar' : 'Pagada completa'}
+                          >
+                            <Check className="w-3 h-3" />
+                          </button>
+                        </li>
+                      );
+                    })}
                   </ol>
-                  <div className="px-3 py-2 border-t border-slate-800 flex justify-between text-xs font-bold shrink-0">
-                    <span className="text-slate-400">Total</span>
-                    <span className="text-emerald-300">{formatMoney(totalAmount)}</span>
+                  <div className="px-3 py-2 border-t border-slate-800 space-y-0.5 text-xs shrink-0">
+                    <div className="flex justify-between font-bold">
+                      <span className="text-slate-400">Total</span>
+                      <span className="text-emerald-300">{formatMoney(totalAmount)}</span>
+                    </div>
+                    {totalPagado > 0 && (
+                      <>
+                        <div className="flex justify-between text-slate-400">
+                          <span>Pagado</span>
+                          <span className="text-slate-200">{formatMoney(totalPagado)}</span>
+                        </div>
+                        <div className="flex justify-between text-slate-400">
+                          <span>Saldo</span>
+                          <span className="text-amber-300 font-semibold">
+                            {formatMoney(round2(totalAmount - totalPagado))}
+                          </span>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </>
               ) : (

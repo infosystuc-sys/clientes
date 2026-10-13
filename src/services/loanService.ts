@@ -1,6 +1,6 @@
 import { getSupabaseClient } from '../lib/supabase';
 import { describeSupabaseError } from './supabaseErrors';
-import { buildSchedule, round2, today } from '../lib/loanMath';
+import { buildSchedule, formatMoney, round2, today } from '../lib/loanMath';
 import {
   Client,
   CollectionRow,
@@ -238,6 +238,100 @@ export const loanService = {
     );
     recalcLocal(id);
     return getLocal<Loan[]>(LOCAL_LOANS_KEY, []).find(l => l.id === id) as Loan;
+  },
+
+  /**
+   * Lo pagado en cada cuota del préstamo, por número de cuota. `reales` son los
+   * cobros de cobranza y rendiciones: el saldo inicial no puede bajar de ahí.
+   */
+  async getPagosPorCuota(
+    loanId: string
+  ): Promise<Record<number, { pagado: number; reales: number }>> {
+    const [cuotas, pagos] = await Promise.all([
+      this.getInstallments(loanId),
+      this.getPayments(loanId),
+    ]);
+    return Object.fromEntries(
+      cuotas.map(c => [
+        c.number,
+        {
+          pagado: round2(Number(c.paid_amount) || 0),
+          reales: round2(
+            pagos
+              .filter(p => p.installment_id === c.id && !p.saldo_inicial)
+              .reduce((a, p) => a + Number(p.amount), 0)
+          ),
+        },
+      ])
+    );
+  },
+
+  /**
+   * Fija cuánto lleva pagado cada cuota (`pagado`: número de cuota -> total
+   * pagado). La diferencia con los cobros reales se registra como pago de
+   * saldo inicial. Las cuotas que no figuran no se tocan.
+   */
+  async cargarSaldosIniciales(loanId: string, pagado: Record<number, number>): Promise<void> {
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      const { error } = await supabase.rpc('cargar_saldos_iniciales', {
+        p_loan_id: loanId,
+        p_pagado: pagado,
+      });
+      if (error) throw describeSupabaseError(error, 'No se pudieron guardar las cuotas pagadas');
+      return;
+    }
+
+    // Modo Demo: misma validación que la función de la base, antes de tocar nada
+    const loan = getLocal<Loan[]>(LOCAL_LOANS_KEY, []).find(l => l.id === loanId);
+    if (!loan) throw new Error('El préstamo no existe.');
+    const cuotas = getLocal<Installment[]>(LOCAL_INSTALLMENTS_KEY, [])
+      .filter(i => i.loan_id === loanId)
+      .sort((a, b) => a.number - b.number);
+    const pagos = getLocal<Payment[]>(LOCAL_PAYMENTS_KEY, []);
+
+    const cambios: { cuota: Installment; diferencia: number }[] = [];
+    for (const cuota of cuotas) {
+      if (!(cuota.number in pagado)) continue;
+      const deseado = round2(pagado[cuota.number] || 0);
+      const propios = pagos.filter(p => p.installment_id === cuota.id);
+      const reales = round2(propios.filter(p => !p.saldo_inicial).reduce((a, p) => a + Number(p.amount), 0));
+      const inicial = round2(propios.filter(p => p.saldo_inicial).reduce((a, p) => a + Number(p.amount), 0));
+
+      if (deseado < 0) throw new Error(`La cuota ${cuota.number} tiene un pagado negativo.`);
+      if (deseado > Number(cuota.amount)) {
+        throw new Error(`La cuota ${cuota.number} no puede tener pagado más que su importe (${formatMoney(cuota.amount)}).`);
+      }
+      if (deseado < reales) {
+        throw new Error(`La cuota ${cuota.number} ya tiene cobros registrados por ${formatMoney(reales)}: el pagado no puede ser menor.`);
+      }
+      if (inicial !== round2(deseado - reales)) {
+        cambios.push({ cuota, diferencia: round2(deseado - reales) });
+      }
+    }
+
+    for (const { cuota, diferencia } of cambios) {
+      setLocal(
+        LOCAL_PAYMENTS_KEY,
+        getLocal<Payment[]>(LOCAL_PAYMENTS_KEY, []).filter(
+          p => !(p.installment_id === cuota.id && p.saldo_inicial)
+        )
+      );
+      if (diferencia > 0) {
+        await this.registerPayment({
+          loan_id: loanId,
+          installment_id: cuota.id,
+          amount: diferencia,
+          paid_at: cuota.due_date < today() ? cuota.due_date : today(),
+          cobrador: loan.cobrador,
+          method: 'other',
+          notes: 'Saldo inicial',
+          saldo_inicial: true,
+        });
+      } else {
+        recalcLocal(loanId, cuota.id);
+      }
+    }
   },
 
   async deleteLoan(id: string): Promise<void> {
