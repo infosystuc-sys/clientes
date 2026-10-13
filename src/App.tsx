@@ -385,12 +385,19 @@ export default function App() {
 
   const handleRendir = async (
     rendicion: Rendicion,
-    montos: Record<string, number>,
-    fecha: string
+    montos: Record<string, number | null>,
+    fecha: string,
+    cerrar: boolean
   ): Promise<void> => {
-    await rendicionService.rendir(rendicion.id, montos, fecha);
+    await rendicionService.guardar(rendicion.id, montos, fecha, cerrar);
     await loadAllData();
-    showToast(`Planilla N° ${rendicion.numero} rendida. Los cobros quedaron registrados.`);
+    showToast(
+      rendicion.estado === 'rendida'
+        ? `Planilla N° ${rendicion.numero} modificada.`
+        : cerrar
+        ? `Planilla N° ${rendicion.numero} rendida. Los cobros quedaron registrados.`
+        : `Avance de la planilla N° ${rendicion.numero} guardado. Podés seguir cargando más tarde.`
+    );
   };
 
   const handleAnularRendicion = async (rendicion: Rendicion) => {

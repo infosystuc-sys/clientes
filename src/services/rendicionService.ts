@@ -112,6 +112,7 @@ function emitirLocal(params: EmisionParams): Rendicion {
     fecha_emision: new Date().toISOString(),
     fecha_rendicion: null,
     cantidad_recibos: candidatas.length,
+    recibos_cargados: 0,
     total_esperado: 0,
     total_cobrado: null,
     created_at: new Date().toISOString(),
@@ -250,43 +251,64 @@ export const rendicionService = {
   },
 
   /**
-   * Registra lo que rindió el cobrador. `montos` va de id de recibo a monto
-   * cobrado; los recibos que no figuran cuentan como no cobrados.
+   * Guarda lo que rindió el cobrador. `montos` va de id de recibo a monto
+   * cobrado (0 = no pagó) o `null` (vuelve a "sin cargar"). Con `cerrar` la
+   * planilla queda rendida y los recibos que no figuran cuentan como no
+   * cobrados; sin `cerrar` sólo se guarda el avance y los ausentes no cambian.
+   * Sobre una planilla ya rendida modifica los cobros registrados.
    */
-  async rendir(rendicionId: string, montos: Record<string, number>, fecha: string): Promise<void> {
+  async guardar(
+    rendicionId: string,
+    montos: Record<string, number | null>,
+    fecha: string,
+    cerrar: boolean
+  ): Promise<void> {
     const supabase = getSupabaseClient();
     if (supabase) {
-      const { error } = await supabase.rpc('rendir_rendicion', {
+      const { error } = await supabase.rpc('guardar_rendicion', {
         p_rendicion_id: rendicionId,
         p_montos: montos,
         p_fecha: fecha,
+        p_cerrar: cerrar,
       });
-      if (error) throw describeSupabaseError(error, 'No se pudo rendir la planilla');
+      if (error) throw describeSupabaseError(error, 'No se pudo guardar la rendición');
       return;
     }
 
-    // Modo Demo: misma validación que la función de la base, antes de tocar nada
+    // Modo Demo: misma lógica que la función de la base, validando antes de tocar nada
     const rendiciones = getLocal<Rendicion[]>(LOCAL_RENDICIONES_KEY, []);
     const rendicion = rendiciones.find(r => r.id === rendicionId);
     if (!rendicion) throw new Error('La planilla no existe.');
-    if (rendicion.estado !== 'emitida') {
-      throw new Error(`La planilla N° ${rendicion.numero} ya fue rendida.`);
-    }
+    const cierra = cerrar || rendicion.estado === 'rendida';
 
     const todos = getLocal<RendicionItem[]>(LOCAL_ITEMS_KEY, []);
     const propios = todos
       .filter(i => i.rendicion_id === rendicionId)
       .sort((a, b) => a.numero_recibo - b.numero_recibo);
 
-    const negativo = propios.find(i => (montos[i.id] || 0) < 0);
-    if (negativo) throw new Error(`El recibo ${negativo.numero_recibo} tiene un monto negativo.`);
-
-    let total = 0;
+    const destino = new Map<string, number | null>();
     for (const item of propios) {
-      const monto = round2(montos[item.id] || 0);
-      let paymentId: string | null = null;
+      let monto: number | null;
+      if (item.id in montos) monto = montos[item.id] === null ? null : round2(montos[item.id] as number);
+      else if (cierra) monto = 0;
+      else monto = item.monto_cobrado ?? null;
+      if (monto !== null && monto < 0) {
+        throw new Error(`El recibo ${item.numero_recibo} tiene un monto negativo.`);
+      }
+      destino.set(item.id, monto);
+    }
 
-      if (monto > 0 && item.installment_id && item.loan_id) {
+    for (const item of propios) {
+      const monto = destino.get(item.id) ?? null;
+      if (monto === (item.monto_cobrado ?? null)) continue;
+
+      if (item.payment_id) {
+        const previo = getLocal<Payment[]>(LOCAL_PAYMENTS_KEY, []).find(p => p.id === item.payment_id);
+        if (previo) await loanService.deletePayment(previo);
+      }
+
+      let paymentId: string | null = null;
+      if (monto && monto > 0 && item.installment_id && item.loan_id) {
         const pago = await loanService.registerPayment({
           loan_id: item.loan_id,
           installment_id: item.installment_id,
@@ -298,11 +320,12 @@ export const rendicionService = {
         });
         paymentId = pago.id;
       }
-
       item.monto_cobrado = monto;
       item.payment_id = paymentId;
-      total += monto;
     }
+
+    const cargados = propios.filter(i => i.monto_cobrado !== null && i.monto_cobrado !== undefined);
+    const total = round2(cargados.reduce((a, i) => a + Number(i.monto_cobrado), 0));
 
     setLocal(
       LOCAL_ITEMS_KEY,
@@ -312,7 +335,13 @@ export const rendicionService = {
       LOCAL_RENDICIONES_KEY,
       rendiciones.map(r =>
         r.id === rendicionId
-          ? { ...r, estado: 'rendida', fecha_rendicion: fecha, total_cobrado: round2(total) }
+          ? {
+              ...r,
+              recibos_cargados: cargados.length,
+              total_cobrado: cierra || cargados.length > 0 ? total : null,
+              estado: cierra ? 'rendida' : r.estado,
+              fecha_rendicion: cerrar && r.estado === 'emitida' ? fecha : r.fecha_rendicion,
+            }
           : r
       )
     );
@@ -399,6 +428,11 @@ export const rendicionService = {
 
     if (rendicion.estado === 'rendida') {
       throw new Error(`La planilla N° ${rendicion.numero} ya fue rendida y no se puede anular.`);
+    }
+    if ((rendicion.recibos_cargados || 0) > 0) {
+      throw new Error(
+        `La planilla N° ${rendicion.numero} tiene cobros cargados. Vaciá los importes y guardá antes de anularla.`
+      );
     }
     setLocal(
       LOCAL_RENDICIONES_KEY,

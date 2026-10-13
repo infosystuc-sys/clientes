@@ -195,6 +195,8 @@ export interface Rendicion {
   fecha_emision: string;
   fecha_rendicion?: string | null;
   cantidad_recibos: number;
+  /** Recibos con importe ya cargado (aunque la planilla siga abierta). */
+  recibos_cargados: number;
   total_esperado: number;
   total_cobrado?: number | null;
   observaciones?: string | null;

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { X, ClipboardCheck, AlertCircle, CheckCheck, Eraser, Loader2 } from 'lucide-react';
+import { X, ClipboardCheck, AlertCircle, CheckCheck, Eraser, Loader2, Save } from 'lucide-react';
 import { Rendicion, RendicionItem } from '../types/database';
 import { formatDate, formatMoney, round2, today } from '../lib/loanMath';
 import { clienteCredito } from '../lib/printDocs';
@@ -9,7 +9,11 @@ interface RendirModalProps {
   items: RendicionItem[];
   isLoading: boolean;
   onClose: () => void;
-  onConfirm: (montos: Record<string, number>, fecha: string) => Promise<void>;
+  /**
+   * `montos`: importe por recibo, `null` para dejarlo sin cargar. Con `cerrar`
+   * la planilla queda rendida; sin él sólo se guarda el avance.
+   */
+  onSave: (montos: Record<string, number | null>, fecha: string, cerrar: boolean) => Promise<void>;
 }
 
 /**
@@ -35,27 +39,39 @@ export const RendirModal: React.FC<RendirModalProps> = ({
   items,
   isLoading,
   onClose,
-  onConfirm,
+  onSave,
 }) => {
   const [montos, setMontos] = useState<Record<string, string>>({});
   const [fecha, setFecha] = useState(today());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const rendida = rendicion?.estado === 'rendida';
+
+  // Al abrir (o cuando llegan los recibos) se precarga lo que ya estaba guardado
   useEffect(() => {
-    setMontos({});
-    setFecha(today());
+    setMontos(
+      Object.fromEntries(
+        items
+          .filter(i => i.monto_cobrado !== null && i.monto_cobrado !== undefined)
+          .map(i => [i.id, toInput(Number(i.monto_cobrado))])
+      )
+    );
+    setFecha(rendicion?.fecha_rendicion || today());
     setError(null);
-  }, [rendicion?.id]);
+  }, [rendicion?.id, items]);
 
   const resumen = useMemo(() => {
     let cobrado = 0;
     let cobrados = 0;
+    let cargados = 0;
     let invalidos = 0;
     items.forEach(item => {
-      const valor = parseMonto(montos[item.id] || '');
+      const raw = (montos[item.id] || '').trim();
+      const valor = parseMonto(raw);
       if (Number.isNaN(valor) || valor < 0) invalidos++;
-      else if (valor > 0) {
+      else if (raw !== '') cargados++;
+      if (!Number.isNaN(valor) && valor > 0) {
         cobrado += valor;
         cobrados++;
       }
@@ -66,6 +82,7 @@ export const RendirModal: React.FC<RendirModalProps> = ({
       cobrado: round2(cobrado),
       diferencia: round2(cobrado - esperado),
       cobrados,
+      cargados,
       invalidos,
     };
   }, [items, montos]);
@@ -77,31 +94,43 @@ export const RendirModal: React.FC<RendirModalProps> = ({
   const cobrarTodo = () =>
     setMontos(Object.fromEntries(items.map(i => [i.id, toInput(Number(i.importe))])));
 
-  const handleConfirm = async () => {
+  const guardar = async (cerrar: boolean) => {
     if (resumen.invalidos > 0) {
       setError('Hay importes que no son válidos. Revisá los marcados en rojo.');
       return;
     }
 
-    const aviso =
-      resumen.cobrados === 0
-        ? `No cargaste ningún cobro. La planilla N° ${rendicion.numero} va a quedar rendida en $ 0 y sus cuotas vuelven a estar disponibles para emitir. ¿Continuar?`
-        : `Se van a registrar ${resumen.cobrados} cobros por ${formatMoney(resumen.cobrado)} con fecha ${formatDate(fecha)}. Una vez rendida, la planilla no se puede modificar. ¿Confirmar?`;
-    if (!window.confirm(aviso)) return;
+    const sinCargar = items.length - resumen.cargados;
+    let aviso: string | null = null;
+    if (rendida) {
+      aviso = `Se van a modificar los cobros de la planilla N° ${rendicion.numero}: los pagos de los recibos que cambiaron se reemplazan y los recibos vacíos pasan a no cobrados. ¿Guardar los cambios?`;
+    } else if (cerrar) {
+      aviso =
+        resumen.cobrados === 0
+          ? `No cargaste ningún cobro. La planilla N° ${rendicion.numero} va a quedar rendida en $ 0 y sus cuotas vuelven a estar disponibles para emitir. ¿Continuar?`
+          : `Se van a registrar ${resumen.cobrados} cobros por ${formatMoney(resumen.cobrado)} con fecha ${formatDate(fecha)}.${
+              sinCargar > 0 ? ` Los ${sinCargar} recibos sin cargar cuentan como no cobrados.` : ''
+            } Después podés modificar la rendición. ¿Cerrar la planilla?`;
+    }
+    if (aviso && !window.confirm(aviso)) return;
 
-    const payload: Record<string, number> = {};
+    const payload: Record<string, number | null> = {};
     items.forEach(item => {
-      const valor = parseMonto(montos[item.id] || '');
-      if (valor > 0) payload[item.id] = round2(valor);
+      const raw = montos[item.id] || '';
+      if (raw.trim() !== '') payload[item.id] = round2(parseMonto(raw));
+      // Lo que se vació después de haberse guardado vuelve a "sin cargar"
+      else if (!cerrar && !rendida && item.monto_cobrado !== null && item.monto_cobrado !== undefined) {
+        payload[item.id] = null;
+      }
     });
 
     setIsSubmitting(true);
     setError(null);
     try {
-      await onConfirm(payload, fecha);
+      await onSave(payload, fecha, cerrar || rendida);
       onClose();
     } catch (err: any) {
-      setError(err?.message || 'No se pudo rendir la planilla.');
+      setError(err?.message || 'No se pudo guardar la rendición.');
     } finally {
       setIsSubmitting(false);
     }
@@ -118,7 +147,7 @@ export const RendirModal: React.FC<RendirModalProps> = ({
             </div>
             <div>
               <h3 className="font-bold text-base text-white">
-                Rendir planilla N° {rendicion.numero}
+                {rendida ? 'Modificar rendición' : 'Rendir planilla'} N° {rendicion.numero}
               </h3>
               <p className="text-xs text-slate-400">
                 {rendicion.cobrador || 'Todos los cobradores'} ·{' '}
@@ -258,9 +287,9 @@ export const RendirModal: React.FC<RendirModalProps> = ({
               </b>
             </span>
             <span className="text-slate-400">
-              Recibos cobrados{' '}
+              Recibos cargados{' '}
               <b className="text-white">
-                {resumen.cobrados}/{items.length}
+                {resumen.cargados}/{items.length}
               </b>
             </span>
 
@@ -272,17 +301,29 @@ export const RendirModal: React.FC<RendirModalProps> = ({
             >
               Cancelar
             </button>
+            {!rendida && (
+              <button
+                onClick={() => guardar(false)}
+                disabled={isSubmitting || isLoading || items.length === 0}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-emerald-500/40 bg-emerald-600/10 hover:bg-emerald-600/20 disabled:opacity-50 disabled:cursor-not-allowed text-emerald-300 text-xs font-semibold transition-colors"
+                title="Guarda lo cargado y deja la planilla abierta para seguir después"
+              >
+                <Save className="w-3.5 h-3.5" /> Guardar avance
+              </button>
+            )}
             <button
-              onClick={handleConfirm}
+              onClick={() => guardar(true)}
               disabled={isSubmitting || isLoading || items.length === 0}
               className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold shadow-lg shadow-emerald-600/25 transition-all"
             >
-              {isSubmitting ? 'Registrando...' : 'Confirmar rendición'}
+              {isSubmitting ? 'Guardando...' : rendida ? 'Guardar cambios' : 'Cerrar y rendir'}
             </button>
           </div>
           <p className="text-[11px] text-slate-500">
-            Lo que dejes vacío cuenta como no cobrado, y esa cuota vuelve a estar disponible para
-            la próxima planilla. Se aceptan pagos parciales.
+            {rendida
+              ? 'Los cambios reemplazan los pagos de los recibos modificados. Un recibo vacío cuenta como no cobrado.'
+              : '"Guardar avance" registra lo cargado y deja la planilla abierta: al volver a entrar continuás donde quedaste. Al cerrar, lo que quede vacío cuenta como no cobrado y esa cuota vuelve a estar disponible para la próxima planilla. Escribí 0 si el cliente fue visitado y no pagó.'}{' '}
+            Se aceptan pagos parciales.
           </p>
         </div>
       </div>

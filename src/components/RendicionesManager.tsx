@@ -12,6 +12,7 @@ import {
   Clock,
   AlertCircle,
   Loader2,
+  Pencil,
 } from 'lucide-react';
 import { CollectionRow, EmisionParams, Rendicion, RendicionItem } from '../types/database';
 import { addWeeks, formatDate, formatMoney, round2, today } from '../lib/loanMath';
@@ -25,7 +26,12 @@ interface RendicionesManagerProps {
   zonas: string[];
   cobradores: string[];
   onEmitir: (params: EmisionParams) => Promise<Rendicion>;
-  onRendir: (rendicion: Rendicion, montos: Record<string, number>, fecha: string) => Promise<void>;
+  onRendir: (
+    rendicion: Rendicion,
+    montos: Record<string, number | null>,
+    fecha: string,
+    cerrar: boolean
+  ) => Promise<void>;
   onAnular: (rendicion: Rendicion) => Promise<void>;
   onError: (message: string) => void;
 }
@@ -374,6 +380,13 @@ export const RendicionesManager: React.FC<RendicionesManagerProps> = ({
                               </span>
                             )}
                           </>
+                        ) : r.recibos_cargados > 0 ? (
+                          <span className="font-semibold text-amber-300">
+                            {formatMoney(r.total_cobrado || 0)}
+                            <span className="block text-[10px] font-normal text-slate-500">
+                              cargado parcial
+                            </span>
+                          </span>
                         ) : (
                           <span className="text-slate-600">—</span>
                         )}
@@ -385,7 +398,9 @@ export const RendicionesManager: React.FC<RendicionesManagerProps> = ({
                           </span>
                         ) : (
                           <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold border bg-amber-500/20 text-amber-300 border-amber-500/30">
-                            En la calle
+                            {r.recibos_cargados > 0
+                              ? `Parcial ${r.recibos_cargados}/${r.cantidad_recibos}`
+                              : 'En la calle'}
                           </span>
                         )}
                       </td>
@@ -407,13 +422,23 @@ export const RendicionesManager: React.FC<RendicionesManagerProps> = ({
                           >
                             {busyId === `${r.id}-planilla` ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
                           </button>
+                          {rendida && (
+                            <button
+                              onClick={() => abrirRendicion(r)}
+                              className="flex items-center gap-1 px-2.5 py-2 rounded-lg bg-slate-800/60 hover:bg-slate-700/60 border border-slate-700 text-slate-200 text-[11px] font-semibold transition-colors"
+                              title="Corregir los importes cargados"
+                            >
+                              <Pencil className="w-3.5 h-3.5" /> Modificar
+                            </button>
+                          )}
                           {!rendida && (
                             <>
                               <button
                                 onClick={() => abrirRendicion(r)}
                                 className="flex items-center gap-1 px-2.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-semibold transition-colors"
                               >
-                                <ClipboardCheck className="w-3.5 h-3.5" /> Rendir
+                                <ClipboardCheck className="w-3.5 h-3.5" />{' '}
+                                {r.recibos_cargados > 0 ? 'Continuar' : 'Rendir'}
                               </button>
                               <button
                                 onClick={() => onAnular(r)}
@@ -440,7 +465,7 @@ export const RendicionesManager: React.FC<RendicionesManagerProps> = ({
         items={rindiendoItems}
         isLoading={cargandoItems}
         onClose={() => setRindiendo(null)}
-        onConfirm={(montos, fecha) => onRendir(rindiendo as Rendicion, montos, fecha)}
+        onSave={(montos, fecha, cerrar) => onRendir(rindiendo as Rendicion, montos, fecha, cerrar)}
       />
     </div>
   );
