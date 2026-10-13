@@ -142,16 +142,35 @@ export const loanService = {
     return newLoan;
   },
 
-  async updateLoan(id: string, loanData: Partial<Loan>): Promise<Loan> {
+  /**
+   * Modifica un préstamo ya otorgado y reacomoda su plan de cuotas conservando
+   * los cobros. Si se reduce la cantidad de cuotas por debajo de una que ya
+   * tiene cobros, falla sin cambiar nada.
+   */
+  async updateLoan(id: string, loanData: LoanInput): Promise<Loan> {
     const supabase = getSupabaseClient();
     if (supabase) {
-      const { data, error } = await supabase
-        .from('loans')
-        .update(loanData)
-        .eq('id', id)
-        .select()
-        .single();
+      const { error } = await supabase.rpc('modificar_prestamo', {
+        p_loan_id: id,
+        p_client_id: loanData.client_id,
+        p_principal: loanData.principal,
+        p_interest_rate: loanData.interest_rate,
+        p_total_amount: loanData.total_amount,
+        p_installments_count: loanData.installments_count,
+        p_installment_amount: loanData.installment_amount,
+        p_fecha_otorgamiento: loanData.fecha_otorgamiento || today(),
+        p_start_date: loanData.start_date,
+        p_cobrador: loanData.cobrador || null,
+        p_notes: loanData.notes || null,
+      });
       if (error) throw describeSupabaseError(error, 'No se pudo actualizar el préstamo');
+
+      const { data, error: fetchError } = await supabase
+        .from('loans')
+        .select('*')
+        .eq('id', id)
+        .single();
+      if (fetchError) throw describeSupabaseError(fetchError, 'No se pudo leer el préstamo actualizado');
       return data as Loan;
     }
 
@@ -159,10 +178,66 @@ export const loanService = {
     const index = loans.findIndex(l => l.id === id);
     if (index === -1) throw new Error('No se encontró el préstamo que querés actualizar.');
 
-    const updated = { ...loans[index], ...loanData };
+    const todas = getLocal<Installment[]>(LOCAL_INSTALLMENTS_KEY, []);
+    const propias = todas.filter(i => i.loan_id === id);
+    const pagos = getLocal<Payment[]>(LOCAL_PAYMENTS_KEY, []);
+
+    const conCobros = propias.find(
+      i => i.number > loanData.installments_count && pagos.some(p => p.installment_id === i.id)
+    );
+    if (conCobros) {
+      throw new Error(
+        `No se puede bajar a ${loanData.installments_count} cuotas: hay cobros registrados en cuotas posteriores. Anulá esos cobros primero.`
+      );
+    }
+
+    const updated: Loan = {
+      ...loans[index],
+      ...loanData,
+      cobrador: loanData.cobrador || undefined,
+      notes: loanData.notes || undefined,
+      fecha_otorgamiento: loanData.fecha_otorgamiento || loans[index].fecha_otorgamiento,
+    };
     loans[index] = updated;
     setLocal(LOCAL_LOANS_KEY, loans);
-    return updated;
+
+    // Mismo reacomodo que `modificar_prestamo`: se actualizan las cuotas en el
+    // lugar, se agregan las que faltan y se quitan las que sobran.
+    const resto = todas.filter(i => i.loan_id !== id);
+    const nuevas: Installment[] = buildSchedule(updated).map(row => {
+      const existente = propias.find(i => i.number === row.number);
+      return existente
+        ? { ...existente, due_date: row.due_date, amount: row.amount }
+        : {
+            id: crypto.randomUUID(),
+            loan_id: id,
+            number: row.number,
+            due_date: row.due_date,
+            amount: row.amount,
+            paid_amount: 0,
+            paid_at: null,
+          };
+    });
+    setLocal(
+      LOCAL_INSTALLMENTS_KEY,
+      [...resto, ...nuevas].map(i =>
+        i.loan_id === id
+          ? {
+              ...i,
+              paid_at:
+                Number(i.paid_amount) > 0 && Number(i.paid_amount) >= Number(i.amount)
+                  ? pagos
+                      .filter(p => p.installment_id === i.id)
+                      .map(p => p.paid_at)
+                      .sort()
+                      .pop() || null
+                  : null,
+            }
+          : i
+      )
+    );
+    recalcLocal(id);
+    return getLocal<Loan[]>(LOCAL_LOANS_KEY, []).find(l => l.id === id) as Loan;
   },
 
   async deleteLoan(id: string): Promise<void> {

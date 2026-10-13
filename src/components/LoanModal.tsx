@@ -187,8 +187,10 @@ export const LoanModal: React.FC<LoanModalProps> = ({
               <div className="p-2.5 rounded-xl border border-amber-500/30 bg-amber-950/30 text-amber-300 text-xs flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                 <span>
-                  Editar el monto o la cantidad de cuotas <strong>no regenera</strong> el plan ya
-                  emitido. Para cambiar el cronograma, eliminá el préstamo y cargalo de nuevo.
+                  Al guardar, el plan de cuotas se <strong>recalcula</strong> con estos datos. Los
+                  cobros ya registrados se conservan en su cuota. Si bajás la cantidad de cuotas,
+                  no puede haber cobros en las que se eliminan. Si ya imprimiste recibos de este
+                  préstamo, conservan los importes y fechas viejos.
                 </span>
               </div>
             )}
