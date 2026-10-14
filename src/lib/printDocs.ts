@@ -219,8 +219,8 @@ function reciboHtml(r: Rendicion, item: RendicionItem, logo: string, duplicado: 
           <div>FECHA: ___/___/___</div>
           <div>IMPORTE: $__________</div>`
     : `
-          <div>COBRADO A LA FECHA: ${esc(money(item.prestamo_pagado))}</div>
-          <div>SALDO PENDIENTE: ${esc(money(item.prestamo_saldo))}</div>`;
+          <div>FECHA: ___/___/___</div>
+          <div>SALDO PENDIENTE: $__________</div>`;
 
   return `
       <section class="recibo">
