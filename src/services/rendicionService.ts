@@ -176,6 +176,47 @@ function emitirLocal(params: EmisionParams): Rendicion {
   return rendicion;
 }
 
+/**
+ * Modo Demo: replica `imputar_cobro`. El cobro va a las cuotas pendientes del
+ * préstamo, de la más vieja a la más nueva, y el sobrante pasa a la siguiente.
+ */
+async function imputarCobroLocal(
+  loanId: string,
+  monto: number,
+  fecha: string,
+  cobrador: string | undefined,
+  notes: string,
+  rendicionItemId: string
+): Promise<string | null> {
+  const pendientes = getLocal<Installment[]>(LOCAL_INSTALLMENTS_KEY, [])
+    .filter(i => i.loan_id === loanId && Number(i.paid_amount) < Number(i.amount))
+    .sort((a, b) => a.number - b.number);
+  const saldo = round2(pendientes.reduce((a, i) => a + Number(i.amount) - Number(i.paid_amount), 0));
+  if (monto > saldo) {
+    throw new Error(`${notes}: el cobro supera en ${round2(monto - saldo)} lo que le queda pagar al préstamo.`);
+  }
+
+  let resto = round2(monto);
+  let primero: string | null = null;
+  for (const cuota of pendientes) {
+    if (resto <= 0) break;
+    const aplica = round2(Math.min(resto, Number(cuota.amount) - Number(cuota.paid_amount)));
+    const pago = await loanService.registerPayment({
+      loan_id: loanId,
+      installment_id: cuota.id,
+      amount: aplica,
+      paid_at: fecha,
+      cobrador,
+      method: 'cash',
+      notes,
+      rendicion_item_id: rendicionItemId,
+    });
+    primero = primero || pago.id;
+    resto = round2(resto - aplica);
+  }
+  return primero;
+}
+
 export const rendicionService = {
   async getRendiciones(): Promise<Rendicion[]> {
     const supabase = getSupabaseClient();
@@ -302,23 +343,21 @@ export const rendicionService = {
       const monto = destino.get(item.id) ?? null;
       if (monto === (item.monto_cobrado ?? null)) continue;
 
-      if (item.payment_id) {
-        const previo = getLocal<Payment[]>(LOCAL_PAYMENTS_KEY, []).find(p => p.id === item.payment_id);
-        if (previo) await loanService.deletePayment(previo);
-      }
+      const previos = getLocal<Payment[]>(LOCAL_PAYMENTS_KEY, []).filter(
+        p => p.rendicion_item_id === item.id || p.id === item.payment_id
+      );
+      for (const previo of previos) await loanService.deletePayment(previo);
 
       let paymentId: string | null = null;
-      if (monto && monto > 0 && item.installment_id && item.loan_id) {
-        const pago = await loanService.registerPayment({
-          loan_id: item.loan_id,
-          installment_id: item.installment_id,
-          amount: monto,
-          paid_at: fecha,
-          cobrador: item.cobrador || rendicion.cobrador || undefined,
-          method: 'cash',
-          notes: `Planilla N° ${rendicion.numero} - recibo ${item.numero_recibo}`,
-        });
-        paymentId = pago.id;
+      if (monto && monto > 0 && item.loan_id) {
+        paymentId = await imputarCobroLocal(
+          item.loan_id,
+          monto,
+          fecha,
+          item.cobrador || rendicion.cobrador || undefined,
+          `Planilla N° ${rendicion.numero} - recibo ${item.numero_recibo}`,
+          item.id
+        );
       }
       item.monto_cobrado = monto;
       item.payment_id = paymentId;

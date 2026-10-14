@@ -147,7 +147,7 @@ export const LoanModal: React.FC<LoanModalProps> = ({
     const minimo = reales[c.number] || 0;
     const problema = Number.isNaN(valor) || valor < 0
       ? 'no es un importe válido'
-      : valor > c.amount
+      : valor > Math.max(c.amount, minimo)
         ? `supera el importe de la cuota (${formatMoney(c.amount)})`
         : valor < minimo
           ? `ya tiene cobros registrados por ${formatMoney(minimo)}`

@@ -299,7 +299,7 @@ export const loanService = {
       const inicial = round2(propios.filter(p => p.saldo_inicial).reduce((a, p) => a + Number(p.amount), 0));
 
       if (deseado < 0) throw new Error(`La cuota ${cuota.number} tiene un pagado negativo.`);
-      if (deseado > Number(cuota.amount)) {
+      if (deseado > Math.max(Number(cuota.amount), reales)) {
         throw new Error(`La cuota ${cuota.number} no puede tener pagado más que su importe (${formatMoney(cuota.amount)}).`);
       }
       if (deseado < reales) {

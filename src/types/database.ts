@@ -95,6 +95,8 @@ export interface Payment {
   notes?: string;
   /** Pago anterior a pasar al sistema, cargado desde la edición del préstamo. */
   saldo_inicial?: boolean;
+  /** Recibo de rendición que generó este pago (uno puede generar varios). */
+  rendicion_item_id?: string | null;
   created_at: string;
 }
 
