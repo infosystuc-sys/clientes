@@ -208,9 +208,18 @@ export interface Rendicion {
 }
 
 /**
- * Un recibo. Guarda una foto de los datos al momento de emitir, para que una
- * reimpresión salga idéntica a la que se le entregó al cobrador.
+ * Un recibo. Guarda una foto de los datos al momento de emitir; al leerlo para
+ * imprimir o rendir, los datos del préstamo y del cliente se reemplazan por los
+ * actuales (ver `conDatosActuales` en rendicionService).
  */
+/** Parte de un cobro de rendición aplicada a una cuota. */
+export interface Imputacion {
+  cuota_numero: number;
+  vencimiento: string;
+  monto: number;
+  fecha: string;
+}
+
 export interface RendicionItem {
   id: string;
   rendicion_id: string;
@@ -245,6 +254,11 @@ export interface RendicionItem {
 
   monto_cobrado?: number | null;
   payment_id?: string | null;
+  /**
+   * A qué cuotas se imputó lo cobrado en este recibo (puede ser más de una).
+   * No es una columna: se arma al leer el recibo, a partir de los pagos.
+   */
+  imputaciones?: Imputacion[];
 }
 
 export interface EmisionParams {

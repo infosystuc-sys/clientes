@@ -217,6 +217,130 @@ async function imputarCobroLocal(
   return primero;
 }
 
+/** Lo que hace falta de cada préstamo para refrescar un recibo. */
+interface DatosPrestamo {
+  loan: Loan;
+  client?: Client;
+  cuotas: Installment[];
+  ultimoPago: string | null;
+  pagos: Payment[];
+}
+
+/**
+ * Pisa la foto del recibo con el estado actual del préstamo y del cliente:
+ * pagado, saldo, atraso, último pago, plan, fecha de otorgamiento y el
+ * vencimiento actual de la cuota. Así un recibo impreso después de rendir (o
+ * de modificar el préstamo) muestra lo cobrado hasta hoy. El importe a cobrar
+ * y el N° de crédito se conservan como se emitieron.
+ */
+function aplicarDatosActuales(items: RendicionItem[], datos: Map<string, DatosPrestamo>): RendicionItem[] {
+  const hoy = today();
+  return items.map(item => {
+    const d = item.loan_id ? datos.get(item.loan_id) : undefined;
+    if (!d) return item;
+
+    const pagado = round2(d.cuotas.reduce((a, c) => a + Number(c.paid_amount), 0));
+    const atraso = round2(
+      d.cuotas
+        .filter(c => c.due_date < hoy && Number(c.paid_amount) < Number(c.amount))
+        .reduce((a, c) => a + Number(c.amount) - Number(c.paid_amount), 0)
+    );
+    const cuota = d.cuotas.find(c => c.id === item.installment_id);
+    const imputaciones = d.pagos
+      .filter(p => p.rendicion_item_id === item.id || (p.id === item.payment_id && !p.rendicion_item_id))
+      .map(p => {
+        const c = d.cuotas.find(x => x.id === p.installment_id);
+        return {
+          cuota_numero: c?.number ?? 0,
+          vencimiento: c?.due_date ?? '',
+          monto: round2(Number(p.amount)),
+          fecha: p.paid_at,
+        };
+      })
+      .sort((a, b) => a.cuota_numero - b.cuota_numero);
+
+    return {
+      ...item,
+      cliente_numero: d.client?.numero ?? item.cliente_numero,
+      cliente_nombre: d.client?.name ?? item.cliente_nombre,
+      domicilio: d.client ? d.client.address : item.domicilio,
+      telefono: d.client ? d.client.phone : item.telefono,
+      rubro: d.client ? d.client.rubro ?? null : item.rubro,
+      zona: d.client ? d.client.zona ?? null : item.zona,
+      fecha_otorgamiento: d.loan.fecha_otorgamiento || item.fecha_otorgamiento,
+      cuotas_total: d.loan.installments_count,
+      valor_cuota: Number(d.loan.installment_amount),
+      prestamo_total: Number(d.loan.total_amount),
+      prestamo_pagado: pagado,
+      prestamo_saldo: round2(Number(d.loan.total_amount) - pagado),
+      ultimo_pago: d.ultimoPago,
+      atraso,
+      cuota_numero: cuota?.number ?? item.cuota_numero,
+      vencimiento: cuota?.due_date ?? item.vencimiento,
+      imputaciones,
+    };
+  });
+}
+
+async function conDatosActuales(items: RendicionItem[]): Promise<RendicionItem[]> {
+  const loanIds = [...new Set(items.map(i => i.loan_id).filter((id): id is string => Boolean(id)))];
+  if (loanIds.length === 0) return items;
+  const datos = new Map<string, DatosPrestamo>();
+
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    const [loansRes, cuotasRes, pagosRes] = await Promise.all([
+      supabase.from('loans').select('*, clients(*)').in('id', loanIds),
+      supabase.from('installments').select('*').in('loan_id', loanIds),
+      supabase
+        .from('payments')
+        .select('id, loan_id, installment_id, amount, paid_at, rendicion_item_id')
+        .in('loan_id', loanIds),
+    ]);
+    const error = loansRes.error || cuotasRes.error || pagosRes.error;
+    if (error) throw describeSupabaseError(error, 'No se pudo leer el estado actual de los préstamos');
+
+    const pagos = (pagosRes.data || []) as Payment[];
+    (loansRes.data || []).forEach((row: any) => {
+      const { clients: client, ...loan } = row;
+      datos.set(loan.id, {
+        pagos: pagos.filter(p => p.loan_id === loan.id),
+        loan: loan as Loan,
+        client: client as Client | undefined,
+        cuotas: ((cuotasRes.data || []) as Installment[]).filter(c => c.loan_id === loan.id),
+        ultimoPago:
+          pagos
+            .filter(p => p.loan_id === loan.id)
+            .map(p => p.paid_at)
+            .sort()
+            .pop() || null,
+      });
+    });
+    return aplicarDatosActuales(items, datos);
+  }
+
+  const clients = getLocal<Client[]>(LOCAL_CLIENTS_KEY, []);
+  const cuotas = getLocal<Installment[]>(LOCAL_INSTALLMENTS_KEY, []);
+  const pagos = getLocal<Payment[]>(LOCAL_PAYMENTS_KEY, []);
+  getLocal<Loan[]>(LOCAL_LOANS_KEY, [])
+    .filter(l => loanIds.includes(l.id))
+    .forEach(loan =>
+      datos.set(loan.id, {
+        loan,
+        pagos: pagos.filter(p => p.loan_id === loan.id),
+        client: clients.find(c => c.id === loan.client_id),
+        cuotas: cuotas.filter(c => c.loan_id === loan.id),
+        ultimoPago:
+          pagos
+            .filter(p => p.loan_id === loan.id)
+            .map(p => p.paid_at)
+            .sort()
+            .pop() || null,
+      })
+    );
+  return aplicarDatosActuales(items, datos);
+}
+
 export const rendicionService = {
   async getRendiciones(): Promise<Rendicion[]> {
     const supabase = getSupabaseClient();
@@ -241,12 +365,14 @@ export const rendicionService = {
         .eq('rendicion_id', rendicionId)
         .order('numero_recibo', { ascending: true });
       if (error) throw describeSupabaseError(error, 'No se pudieron cargar los recibos');
-      return (data || []) as RendicionItem[];
+      return conDatosActuales((data || []) as RendicionItem[]);
     }
 
-    return getLocal<RendicionItem[]>(LOCAL_ITEMS_KEY, [])
-      .filter(i => i.rendicion_id === rendicionId)
-      .sort((a, b) => a.numero_recibo - b.numero_recibo);
+    return conDatosActuales(
+      getLocal<RendicionItem[]>(LOCAL_ITEMS_KEY, [])
+        .filter(i => i.rendicion_id === rendicionId)
+        .sort((a, b) => a.numero_recibo - b.numero_recibo)
+    );
   },
 
   /** Para la vista previa: cuotas que no se van a volver a emitir. */
@@ -394,15 +520,26 @@ export const rendicionService = {
   async getInstallmentsConRecibo(): Promise<Set<string>> {
     const supabase = getSupabaseClient();
     if (supabase) {
-      const { data, error } = await supabase.from('rendicion_items').select('installment_id');
+      const [itemsRes, pagosRes] = await Promise.all([
+        supabase.from('rendicion_items').select('installment_id'),
+        supabase.from('payments').select('installment_id').not('rendicion_item_id', 'is', null),
+      ]);
+      const error = itemsRes.error || pagosRes.error;
       if (error) throw describeSupabaseError(error, 'No se pudo verificar qué cuotas tienen recibo');
-      return new Set((data || []).map((r: any) => r.installment_id).filter(Boolean) as string[]);
+      return new Set(
+        [...(itemsRes.data || []), ...(pagosRes.data || [])]
+          .map((r: any) => r.installment_id)
+          .filter(Boolean) as string[]
+      );
     }
 
     return new Set(
-      getLocal<RendicionItem[]>(LOCAL_ITEMS_KEY, [])
-        .map(i => i.installment_id)
-        .filter((id): id is string => Boolean(id))
+      [
+        ...getLocal<RendicionItem[]>(LOCAL_ITEMS_KEY, []).map(i => i.installment_id),
+        ...getLocal<Payment[]>(LOCAL_PAYMENTS_KEY, [])
+          .filter(p => p.rendicion_item_id)
+          .map(p => p.installment_id),
+      ].filter((id): id is string => Boolean(id))
     );
   },
 
@@ -418,10 +555,20 @@ export const rendicionService = {
   ): Promise<{ rendicion: Rendicion; item: RendicionItem } | null> {
     const supabase = getSupabaseClient();
     if (supabase) {
-      const { data: items, error } = await supabase
-        .from('rendicion_items')
-        .select('*')
-        .eq('installment_id', installmentId);
+      // Recibos emitidos para esta cuota o cuyo cobro se imputó a ella
+      const { data: pagos, error: pErr } = await supabase
+        .from('payments')
+        .select('rendicion_item_id')
+        .eq('installment_id', installmentId)
+        .not('rendicion_item_id', 'is', null);
+      if (pErr) throw describeSupabaseError(pErr, 'No se pudo buscar el recibo de esta cuota');
+      const imputados = [...new Set((pagos || []).map((p: any) => p.rendicion_item_id as string))];
+
+      let query = supabase.from('rendicion_items').select('*');
+      query = imputados.length
+        ? query.or(`installment_id.eq.${installmentId},id.in.(${imputados.join(',')})`)
+        : query.eq('installment_id', installmentId);
+      const { data: items, error } = await query;
       if (error) throw describeSupabaseError(error, 'No se pudo buscar el recibo de esta cuota');
       if (!items || items.length === 0) return null;
 
@@ -439,11 +586,16 @@ export const rendicionService = {
       if (!rendicion) return null;
 
       const item = items.find(i => i.rendicion_id === rendicion.id) as RendicionItem;
-      return { rendicion, item };
+      return { rendicion, item: (await conDatosActuales([item]))[0] };
     }
 
+    const imputados = new Set(
+      getLocal<Payment[]>(LOCAL_PAYMENTS_KEY, [])
+        .filter(p => p.installment_id === installmentId && p.rendicion_item_id)
+        .map(p => p.rendicion_item_id as string)
+    );
     const propios = getLocal<RendicionItem[]>(LOCAL_ITEMS_KEY, []).filter(
-      i => i.installment_id === installmentId
+      i => i.installment_id === installmentId || imputados.has(i.id)
     );
     if (propios.length === 0) return null;
 
@@ -453,7 +605,7 @@ export const rendicionService = {
     if (!rendicion) return null;
 
     const item = propios.find(i => i.rendicion_id === rendicion.id)!;
-    return { rendicion, item };
+    return { rendicion, item: (await conDatosActuales([item]))[0] };
   },
 
   /** Anula una planilla emitida. Una rendida no se puede anular. */

@@ -176,6 +176,52 @@ function reciboHtml(r: Rendicion, item: RendicionItem, logo: string, duplicado: 
       ? 'Plan original'
       : `Renovación N° ${item.credito_numero}`;
 
+  // Recibo ya rendido: pasa a ser el comprobante de lo que se cobró
+  const rendido = item.monto_cobrado !== null && item.monto_cobrado !== undefined;
+  const cobrado = Number(item.monto_cobrado) || 0;
+  const imputaciones = item.imputaciones || [];
+  const fechaCobro = imputaciones[0]?.fecha || r.fecha_rendicion;
+
+  const titulo = !rendido
+    ? `VENCE ${esc(formatDate(item.vencimiento))}`
+    : cobrado > 0
+      ? `COBRADO ${esc(formatDate(fechaCobro))}`
+      : 'NO COBRADO';
+
+  const planRow = !rendido
+    ? `
+          <div>
+            Plan: <b>${esc(item.cuotas_total ?? '—')} semanas: ${esc(money(item.valor_cuota))}</b><br>
+            A cobrar: <b>${esc(money(item.importe))}</b>
+          </div>
+          <div class="der">
+            ${esc(credito)}<br>
+            Cancelación: <b>${esc(formatDate(item.vencimiento))}</b>
+          </div>`
+    : `
+          <div>
+            Cobrado: <b>${esc(money(cobrado))}</b><br>
+            Imputado a: <b>${
+              imputaciones.length
+                ? imputaciones
+                    .map(i => `Cuota ${esc(i.cuota_numero)}/${esc(item.cuotas_total ?? '—')} (vto ${esc(formatDate(i.vencimiento))}): ${esc(money(i.monto))}`)
+                    .join(' · ')
+                : '—'
+            }</b>
+          </div>
+          <div class="der">
+            ${esc(credito)}<br>
+            Plan: <b>${esc(item.cuotas_total ?? '—')} x ${esc(money(item.valor_cuota))}</b>
+          </div>`;
+
+  const pie = !rendido
+    ? `
+          <div>FECHA: ___/___/___</div>
+          <div>IMPORTE: $__________</div>`
+    : `
+          <div>COBRADO A LA FECHA: ${esc(money(item.prestamo_pagado))}</div>
+          <div>SALDO PENDIENTE: ${esc(money(item.prestamo_saldo))}</div>`;
+
   return `
       <section class="recibo">
         <span class="etiqueta">${duplicado ? 'DUPLICADO' : 'ORIGINAL'}</span>
@@ -186,7 +232,7 @@ function reciboHtml(r: Rendicion, item: RendicionItem, logo: string, duplicado: 
             <span class="texto">${esc(EMPRESA.nombre)}</span>
           </div>
           <div class="info-der">
-            <div class="vence">VENCE ${esc(formatDate(item.vencimiento))}</div>
+            <div class="vence">${titulo}</div>
             <div class="zona">${esc(item.zona || 'Sin zona')}</div>
             <div class="tel">Tel: ${esc(item.telefono || '—')}</div>
           </div>
@@ -204,7 +250,7 @@ function reciboHtml(r: Rendicion, item: RendicionItem, logo: string, duplicado: 
 
         <table>
           <tr>
-            <th>Fecha</th><th>Compra</th><th>Pagado</th><th>Saldo</th><th>Últ. pago</th><th>Atraso</th>
+            <th>Fecha</th><th>Compra</th><th>${rendido ? 'Cobrado' : 'Pagado'}</th><th>${rendido ? 'Saldo pend.' : 'Saldo'}</th><th>Últ. pago</th><th>Atraso</th>
           </tr>
           <tr>
             <td>${esc(formatDate(item.fecha_otorgamiento))}</td>
@@ -216,21 +262,11 @@ function reciboHtml(r: Rendicion, item: RendicionItem, logo: string, duplicado: 
           </tr>
         </table>
 
-        <div class="plan-row">
-          <div>
-            Plan: <b>${esc(item.cuotas_total ?? '—')} semanas: ${esc(money(item.valor_cuota))}</b><br>
-            A cobrar: <b>${esc(money(item.importe))}</b>
-          </div>
-          <div class="der">
-            ${esc(credito)}<br>
-            Cancelación: <b>${esc(formatDate(item.vencimiento))}</b>
-          </div>
+        <div class="plan-row">${planRow}
         </div>
 
         <!-- Espacio para completar a mano -->
-        <div class="manual">
-          <div>FECHA: ___/___/___</div>
-          <div>IMPORTE: $__________</div>
+        <div class="manual">${pie}
         </div>
       </section>`;
 }
