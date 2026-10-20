@@ -86,27 +86,31 @@ function openPrintWindow(html: string): void {
 
 // ---------------------------------------------------------------------------
 // Recibos: por duplicado. Cada cuota sale dos veces (ORIGINAL y DUPLICADO)
-// lado a lado, en A4 apaisada: 3 filas por hoja (6 recibos de 14 x 7 cm).
+// lado a lado, en A4 apaisada: 3 filas por hoja (6 recibos por hoja).
 // ---------------------------------------------------------------------------
 
 /**
- * Medidas en mm. 3 filas de 70mm ocupan exactamente los 210mm de alto de la A4
- * apaisada, así que la hoja se imprime sin márgenes; a lo ancho, 2 × 140mm +
- * 5mm de separación = 285mm sobre 297mm, centrados.
+ * Medidas en mm. Las impresoras no imprimen en los bordes de la hoja (en la
+ * prueba sin márgenes se cortaba el recibo), así que se deja un margen de
+ * 10mm por lado y los recibos se calculan para entrar en lo que queda:
+ * 277 × 190mm. A lo ancho, 2 recibos con 4mm de separación; a lo alto, 3 filas.
  */
 const FILAS_POR_HOJA = 3;
-const ANCHO_RECIBO_MM = 140;
-const ALTO_RECIBO_MM = 70;
-const SEPARACION_MM = 5;
+const MARGEN_MM = 10;
+const SEPARACION_MM = 4;
+const ANCHO_UTIL_MM = 297 - 2 * MARGEN_MM;
+const ALTO_UTIL_MM = 210 - 2 * MARGEN_MM;
+const ANCHO_RECIBO_MM = (ANCHO_UTIL_MM - SEPARACION_MM) / 2; // 136,5mm
+const ALTO_RECIBO_MM = Math.floor(ALTO_UTIL_MM / FILAS_POR_HOJA); // 63mm
 
 const RECIBO_CSS = `
-  @page { size: A4 landscape; margin: 0; }
+  @page { size: A4 landscape; margin: ${MARGEN_MM}mm; }
   * { box-sizing: border-box; }
   body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #000; }
 
   .hoja {
-    width: 297mm; height: 210mm; overflow: hidden;
-    display: flex; flex-direction: column; align-items: center;
+    width: ${ANCHO_UTIL_MM}mm; height: ${ALTO_UTIL_MM - 1}mm; overflow: hidden;
+    display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
     page-break-after: always;
   }
   .hoja:last-of-type { page-break-after: auto; }
@@ -133,7 +137,7 @@ const RECIBO_CSS = `
 
   .cabecera { display: flex; justify-content: space-between; align-items: flex-start; padding: 1.2mm 2mm 1mm; border-bottom: 1px solid #000; }
   .cabecera .empresa { display: flex; align-items: center; gap: 1.3mm; min-width: 0; }
-  .cabecera .empresa img { max-width: 32mm; max-height: 13mm; }
+  .cabecera .empresa img { max-width: 26mm; max-height: 10mm; }
   .cabecera .empresa .texto { display: none; font-size: 10.8pt; font-weight: bold; color: #1e3a8a; }
   .cabecera .info-der { text-align: right; padding-right: 22mm; line-height: 1.35; white-space: nowrap; }
   .cabecera .vence { font-size: 10.3pt; font-weight: bold; }
@@ -148,19 +152,19 @@ const RECIBO_CSS = `
     flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
 
-  .direccion { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 1.2mm 2mm; border-bottom: 1px solid #000; line-height: 1.6; }
+  .direccion { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 0.6mm 2mm; border-bottom: 1px solid #000; line-height: 1.4; }
   .direccion b { font-weight: bold; }
 
   table { width: 100%; border-collapse: collapse; }
-  th, td { border: 1px solid #000; padding: 1mm 1mm; text-align: left; }
+  th, td { border: 1px solid #000; padding: 0.6mm 1mm; text-align: left; }
   th { font-size: 7.6pt; background: #f1f1f1; font-weight: 600; }
   td { font-size: 8.5pt; }
 
-  .plan-row { flex: 1; display: flex; justify-content: space-between; align-items: center; gap: 2mm; padding: 1.2mm 2mm; border-bottom: 1px solid #000; line-height: 1.7; }
+  .plan-row { flex: 1; display: flex; justify-content: space-between; align-items: center; gap: 2mm; padding: 0.6mm 2mm; border-bottom: 1px solid #000; line-height: 1.45; }
   .plan-row .der { text-align: right; white-space: nowrap; }
 
   /* Firma e importe: espacio fijo para completar a mano. */
-  .manual { flex: 0 0 11mm; display: flex; }
+  .manual { flex: 0 0 9mm; display: flex; }
   .manual div { flex: 1; border-right: 1px solid #000; padding: 1mm 1.5mm; font-weight: bold; font-size: 8.5pt; display: flex; align-items: center; }
   .manual div:last-child { border-right: 0; }
 
