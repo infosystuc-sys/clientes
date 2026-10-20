@@ -86,64 +86,65 @@ function openPrintWindow(html: string): void {
 
 // ---------------------------------------------------------------------------
 // Recibos: por duplicado. Cada cuota sale dos veces (ORIGINAL y DUPLICADO)
-// lado a lado; se completa la hoja con tantas filas como entren.
+// lado a lado, en A4 apaisada: 3 filas por hoja (6 recibos de 14 x 7 cm).
 // ---------------------------------------------------------------------------
 
 /**
- * Filas por hoja y su alto: 4 recibos por hoja, cada uno por duplicado (8 en
- * total). 4 filas de 65mm + 3 espacios de 3mm = 269mm, contra ~281mm
- * imprimibles de una A4 (297mm - 2×8mm de margen): colchón para que el
- * redondeo del motor de impresión no empuje la última fila a una hoja aparte.
+ * Medidas en mm. 3 filas de 70mm ocupan exactamente los 210mm de alto de la A4
+ * apaisada, así que la hoja se imprime sin márgenes; a lo ancho, 2 × 140mm +
+ * 5mm de separación = 285mm sobre 297mm, centrados.
  */
-const FILAS_POR_HOJA = 4;
-const ALTO_FILA_MM = 65;
-const GAP_FILA_MM = 3;
+const FILAS_POR_HOJA = 3;
+const ANCHO_RECIBO_MM = 140;
+const ALTO_RECIBO_MM = 70;
+const SEPARACION_MM = 5;
 
 const RECIBO_CSS = `
-  @page { size: A4 portrait; margin: 8mm; }
+  @page { size: A4 landscape; margin: 0; }
   * { box-sizing: border-box; }
   body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #000; }
 
+  .hoja {
+    width: 297mm; height: 210mm; overflow: hidden;
+    display: flex; flex-direction: column; align-items: center;
+    page-break-after: always;
+  }
+  .hoja:last-of-type { page-break-after: auto; }
   .fila {
     position: relative;
-    display: grid; grid-template-columns: 1fr 1fr; column-gap: 3mm;
-    height: ${ALTO_FILA_MM}mm; margin-bottom: ${GAP_FILA_MM}mm;
-    page-break-inside: avoid;
+    display: grid; grid-template-columns: ${ANCHO_RECIBO_MM}mm ${ANCHO_RECIBO_MM}mm;
+    column-gap: ${SEPARACION_MM}mm; height: ${ALTO_RECIBO_MM}mm; flex-shrink: 0;
   }
-  .fila.fin-de-hoja { margin-bottom: 0; page-break-after: always; }
-  .fila:last-of-type { page-break-after: auto; }
   /* Guía de corte vertical, centrada en el espacio entre columnas */
   .fila::before {
     content: ''; position: absolute; top: 0; bottom: 0; left: 50%;
     border-left: 1px dashed #999;
   }
-  /* Guía de corte horizontal entre filas de la misma hoja */
-  .corte-h { border-bottom: 1px dashed #999; margin: -1.5mm 0 1.5mm; height: 0; }
 
   .recibo {
     position: relative; border: 1px solid #000; overflow: hidden;
-    display: flex; flex-direction: column; font-size: 6.8pt;
+    display: flex; flex-direction: column; font-size: 9.2pt;
   }
   .etiqueta {
     position: absolute; top: 1mm; right: 1mm; z-index: 1;
-    font-size: 5.8pt; font-weight: bold; letter-spacing: 0.3px;
+    font-size: 7.8pt; font-weight: bold; letter-spacing: 0.3px;
     padding: 0.2mm 1.5mm; border: 1px solid #000; border-radius: 2mm; background: #fff;
   }
 
   .cabecera { display: flex; justify-content: space-between; align-items: flex-start; padding: 1.2mm 2mm 1mm; border-bottom: 1px solid #000; }
   .cabecera .empresa { display: flex; align-items: center; gap: 1.3mm; min-width: 0; }
-  .cabecera .empresa img { max-width: 20mm; max-height: 7mm; }
-  .cabecera .empresa .texto { display: none; font-size: 8pt; font-weight: bold; color: #1e3a8a; }
-  .cabecera .info-der { text-align: right; padding-right: 17mm; line-height: 1.35; white-space: nowrap; }
-  .cabecera .vence { font-size: 7.6pt; font-weight: bold; }
-  .cabecera .zona, .cabecera .tel { font-size: 6.2pt; color: #222; }
+  .cabecera .empresa img { max-width: 28mm; max-height: 10mm; }
+  .cabecera .empresa .texto { display: none; font-size: 10.8pt; font-weight: bold; color: #1e3a8a; }
+  .cabecera .info-der { text-align: right; padding-right: 22mm; line-height: 1.35; white-space: nowrap; }
+  .cabecera .vence { font-size: 10.3pt; font-weight: bold; }
+  .cabecera .zona, .cabecera .tel { font-size: 8.4pt; color: #222; }
 
   /* El nombre siempre en una sola línea (con puntos suspensivos si es muy largo):
      dejarlo wrapear a 2 líneas empuja el resto del recibo y desborda la altura fija. */
   .cliente-row { display: flex; align-items: baseline; gap: 2mm; padding: 0.8mm 2mm; border-bottom: 1px solid #000; }
-  .cliente-row .num { font-size: 6.2pt; color: #333; white-space: nowrap; flex-shrink: 0; }
+  .cliente-row .num { font-size: 8.4pt; color: #333; white-space: nowrap; flex-shrink: 0; }
   .cliente-row .nombre {
-    font-size: 9pt; font-weight: bold; text-transform: uppercase; line-height: 1.1;
+    font-size: 12.2pt; font-weight: bold; text-transform: uppercase; line-height: 1.1;
     flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
 
@@ -152,21 +153,20 @@ const RECIBO_CSS = `
 
   table { width: 100%; border-collapse: collapse; }
   th, td { border: 1px solid #000; padding: 0.4mm 0.8mm; text-align: left; }
-  th { font-size: 5.6pt; background: #f1f1f1; font-weight: 600; }
-  td { font-size: 6.3pt; }
+  th { font-size: 7.6pt; background: #f1f1f1; font-weight: 600; }
+  td { font-size: 8.5pt; }
 
   .plan-row { display: flex; justify-content: space-between; gap: 2mm; padding: 0.8mm 2mm; border-bottom: 1px solid #000; line-height: 1.4; }
   .plan-row .der { text-align: right; white-space: nowrap; }
 
   /* Firma e importe: espacio fijo para completar a mano. */
   .manual { flex: 1; display: flex; }
-  .manual div { flex: 1; border-right: 1px solid #000; padding: 1mm 1.5mm; font-weight: bold; font-size: 6.3pt; display: flex; align-items: center; }
+  .manual div { flex: 1; border-right: 1px solid #000; padding: 1mm 1.5mm; font-weight: bold; font-size: 8.5pt; display: flex; align-items: center; }
   .manual div:last-child { border-right: 0; }
 
   @media screen {
     body { background: #e5e7eb; padding: 10mm; }
-    .fila { max-width: 194mm; margin-left: auto; margin-right: auto; }
-    .recibo { background: #fff; }
+    .hoja { background: #fff; margin: 0 auto 10mm; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
   }
 `;
 
@@ -272,11 +272,11 @@ function reciboHtml(r: Rendicion, item: RendicionItem, logo: string, duplicado: 
 }
 
 /** Una fila = un recibo por duplicado: ORIGINAL a la izquierda, DUPLICADO a la derecha. */
-function filaHtml(r: Rendicion, item: RendicionItem, logo: string, finDeHoja: boolean): string {
+function filaHtml(r: Rendicion, item: RendicionItem, logo: string): string {
   return `
-  <div class="fila${finDeHoja ? ' fin-de-hoja' : ''}">${reciboHtml(r, item, logo, false)}
+    <div class="fila">${reciboHtml(r, item, logo, false)}
 ${reciboHtml(r, item, logo, true)}
-  </div>`;
+    </div>`;
 }
 
 /** HTML de los recibos. Función pura: no toca `window`, se puede probar aparte. */
@@ -286,15 +286,12 @@ export function buildRecibosHtml(
   logo: string,
   autoPrint = true
 ): string {
-  const body = items
-    .map((item, idx) => {
-      const finDeHoja = (idx + 1) % FILAS_POR_HOJA === 0;
-      const html = filaHtml(rendicion, item, logo, finDeHoja);
-      const esUltimo = idx === items.length - 1;
-      // La línea de corte horizontal va sólo entre filas de la misma hoja
-      return finDeHoja || esUltimo ? html : `${html}\n  <div class="corte-h"></div>`;
-    })
-    .join('\n');
+  const hojas: string[] = [];
+  for (let i = 0; i < items.length; i += FILAS_POR_HOJA) {
+    const filas = items.slice(i, i + FILAS_POR_HOJA).map(item => filaHtml(rendicion, item, logo));
+    hojas.push(`  <div class="hoja">${filas.join('')}\n  </div>`);
+  }
+  const body = hojas.join('\n');
   return buildDocument(`Recibos - Planilla ${rendicion.numero}`, body, RECIBO_CSS, autoPrint);
 }
 
