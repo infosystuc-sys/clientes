@@ -282,6 +282,8 @@ function aplicarDatosActuales(items: RendicionItem[], datos: Map<string, DatosPr
       cuota_numero: cuota?.number ?? item.cuota_numero,
       vencimiento: cuota?.due_date ?? item.vencimiento,
       imputaciones,
+      vencimiento_final:
+        d.cuotas.map(c => c.due_date).sort().pop() ?? null,
     };
   });
 }

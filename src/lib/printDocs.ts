@@ -3,7 +3,7 @@ import { formatDate } from './loanMath';
 
 /** Datos de la empresa que salen en los recibos. */
 export const EMPRESA = {
-  nombre: 'D&B Soluciones',
+  nombre: 'Nova Cred',
   // Servido desde /public. Para cambiar el logo, reemplazá public/logo.png.
   logo: 'logo.png',
 };
@@ -133,7 +133,7 @@ const RECIBO_CSS = `
 
   .cabecera { display: flex; justify-content: space-between; align-items: flex-start; padding: 1.2mm 2mm 1mm; border-bottom: 1px solid #000; }
   .cabecera .empresa { display: flex; align-items: center; gap: 1.3mm; min-width: 0; }
-  .cabecera .empresa img { max-width: 28mm; max-height: 10mm; }
+  .cabecera .empresa img { max-width: 32mm; max-height: 13mm; }
   .cabecera .empresa .texto { display: none; font-size: 10.8pt; font-weight: bold; color: #1e3a8a; }
   .cabecera .info-der { text-align: right; padding-right: 22mm; line-height: 1.35; white-space: nowrap; }
   .cabecera .vence { font-size: 10.3pt; font-weight: bold; }
@@ -148,19 +148,19 @@ const RECIBO_CSS = `
     flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
 
-  .direccion { padding: 0.8mm 2mm; border-bottom: 1px solid #000; line-height: 1.35; }
+  .direccion { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 1.2mm 2mm; border-bottom: 1px solid #000; line-height: 1.6; }
   .direccion b { font-weight: bold; }
 
   table { width: 100%; border-collapse: collapse; }
-  th, td { border: 1px solid #000; padding: 0.4mm 0.8mm; text-align: left; }
+  th, td { border: 1px solid #000; padding: 1mm 1mm; text-align: left; }
   th { font-size: 7.6pt; background: #f1f1f1; font-weight: 600; }
   td { font-size: 8.5pt; }
 
-  .plan-row { display: flex; justify-content: space-between; gap: 2mm; padding: 0.8mm 2mm; border-bottom: 1px solid #000; line-height: 1.4; }
+  .plan-row { flex: 1; display: flex; justify-content: space-between; align-items: center; gap: 2mm; padding: 1.2mm 2mm; border-bottom: 1px solid #000; line-height: 1.7; }
   .plan-row .der { text-align: right; white-space: nowrap; }
 
   /* Firma e importe: espacio fijo para completar a mano. */
-  .manual { flex: 1; display: flex; }
+  .manual { flex: 0 0 11mm; display: flex; }
   .manual div { flex: 1; border-right: 1px solid #000; padding: 1mm 1.5mm; font-weight: bold; font-size: 8.5pt; display: flex; align-items: center; }
   .manual div:last-child { border-right: 0; }
 
@@ -181,6 +181,8 @@ function reciboHtml(r: Rendicion, item: RendicionItem, logo: string, duplicado: 
   const cobrado = Number(item.monto_cobrado) || 0;
   const imputaciones = item.imputaciones || [];
   const fechaCobro = imputaciones[0]?.fecha || r.fecha_rendicion;
+  // Fecha de cancelación: vence la última cuota del préstamo
+  const cancelacion = item.vencimiento_final || item.vencimiento;
 
   const titulo = !rendido
     ? `VENCE ${esc(formatDate(item.vencimiento))}`
@@ -196,18 +198,12 @@ function reciboHtml(r: Rendicion, item: RendicionItem, logo: string, duplicado: 
           </div>
           <div class="der">
             ${esc(credito)}<br>
-            Cancelación: <b>${esc(formatDate(item.vencimiento))}</b>
+            Cancelación: <b>${esc(formatDate(cancelacion))}</b>
           </div>`
     : `
           <div>
             Cobrado: <b>${esc(money(cobrado))}</b><br>
-            Imputado a: <b>${
-              imputaciones.length
-                ? imputaciones
-                    .map(i => `Cuota ${esc(i.cuota_numero)}/${esc(item.cuotas_total ?? '—')} (vto ${esc(formatDate(i.vencimiento))}): ${esc(money(i.monto))}`)
-                    .join(' · ')
-                : '—'
-            }</b>
+            Cancelación: <b>${esc(formatDate(cancelacion))}</b>
           </div>
           <div class="der">
             ${esc(credito)}<br>

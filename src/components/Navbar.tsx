@@ -1,5 +1,5 @@
 import React from 'react';
-import { Database, Plus, Server, UserCheck, LogIn, Sparkles } from 'lucide-react';
+import { Plus, Server, UserCheck, LogIn, Sparkles } from 'lucide-react';
 import { SupabaseCredentials } from '../types/database';
 
 interface NavbarProps {
@@ -21,21 +21,19 @@ export const Navbar: React.FC<NavbarProps> = ({
     <header className="sticky top-0 z-30 border-b border-slate-800 bg-slate-900/80 backdrop-blur-md px-4 lg:px-8 py-3.5 flex items-center justify-between transition-all">
       {/* Brand */}
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-500 to-cyan-400 p-0.5 shadow-lg shadow-blue-500/20">
-          <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center">
-            <Database className="w-5 h-5 text-cyan-400" />
-          </div>
+        <div className="w-10 h-10 rounded-xl bg-white p-1 shadow-lg shadow-blue-500/20 overflow-hidden">
+          <img src={`${import.meta.env.BASE_URL}logo-icono.png`} alt="Nova Cred" className="w-full h-full object-contain" />
         </div>
         <div>
           <div className="flex items-center gap-2">
             <h1 className="font-bold text-lg tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">
-              ClienteFlow CRM
+              Nova Cred
             </h1>
             <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full flex items-center gap-1">
               <Sparkles className="w-2.5 h-2.5" /> Supabase
             </span>
           </div>
-          <p className="text-xs text-slate-400">Plataforma de Gestión de Clientes</p>
+          <p className="text-xs text-slate-400">Soluciones Comerciales</p>
         </div>
       </div>
 

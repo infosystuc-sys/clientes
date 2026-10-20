@@ -149,7 +149,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Footer Info */}
       <div className="pt-4 border-t border-slate-800/80 text-center">
-        <p className="text-[10px] text-slate-500 font-mono">ClienteFlow v2.0 • Préstamos y Cobranza</p>
+        <p className="text-[10px] text-slate-500 font-mono">Nova Cred • Préstamos y Cobranza</p>
       </div>
     </aside>
   );

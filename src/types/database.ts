@@ -287,6 +287,8 @@ export interface RendicionItem {
    * No es una columna: se arma al leer el recibo, a partir de los pagos.
    */
   imputaciones?: Imputacion[];
+  /** Vencimiento de la última cuota del préstamo (fecha de cancelación). Se arma al leer. */
+  vencimiento_final?: string | null;
 }
 
 export interface EmisionParams {
