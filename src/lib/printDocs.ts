@@ -90,13 +90,13 @@ function openPrintWindow(html: string): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Filas por hoja y su alto. 5 filas de 52mm + 4 espacios de 3mm = 272mm,
- * contra ~281mm imprimibles de una A4 (297mm - 2×8mm de margen): colchón de
- * 9mm para que el redondeo del motor de impresión no empuje la última fila a
- * una hoja aparte (el mismo margen que ya funcionó en los diseños previos).
+ * Filas por hoja y su alto: 4 recibos por hoja, cada uno por duplicado (8 en
+ * total). 4 filas de 65mm + 3 espacios de 3mm = 269mm, contra ~281mm
+ * imprimibles de una A4 (297mm - 2×8mm de margen): colchón para que el
+ * redondeo del motor de impresión no empuje la última fila a una hoja aparte.
  */
-const FILAS_POR_HOJA = 5;
-const ALTO_FILA_MM = 52;
+const FILAS_POR_HOJA = 4;
+const ALTO_FILA_MM = 65;
 const GAP_FILA_MM = 3;
 
 const RECIBO_CSS = `
