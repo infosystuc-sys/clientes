@@ -7,6 +7,7 @@ import {
   EmisionParams,
   Installment,
   Loan,
+  MovimientoRendicion,
   Payment,
   Rendicion,
   RendicionItem,
@@ -14,6 +15,7 @@ import {
 
 const LOCAL_RENDICIONES_KEY = 'clientflow_demo_rendiciones';
 const LOCAL_ITEMS_KEY = 'clientflow_demo_rendicion_items';
+const LOCAL_MOVIMIENTOS_KEY = 'clientflow_demo_rendicion_movimientos';
 // Claves que escriben clientService y loanService
 const LOCAL_CLIENTS_KEY = 'clientflow_demo_clients';
 const LOCAL_LOANS_KEY = 'clientflow_demo_loans';
@@ -113,6 +115,8 @@ function emitirLocal(params: EmisionParams): Rendicion {
     fecha_rendicion: null,
     cantidad_recibos: candidatas.length,
     recibos_cargados: 0,
+    total_ingresos: 0,
+    total_egresos: 0,
     total_esperado: 0,
     total_cobrado: null,
     created_at: new Date().toISOString(),
@@ -375,6 +379,24 @@ export const rendicionService = {
     );
   },
 
+  /** Ingresos y egresos del cobrador cargados en la planilla. */
+  async getMovimientos(rendicionId: string): Promise<MovimientoRendicion[]> {
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('rendicion_movimientos')
+        .select('*')
+        .eq('rendicion_id', rendicionId)
+        .order('orden', { ascending: true });
+      if (error) throw describeSupabaseError(error, 'No se pudieron cargar los ingresos y egresos');
+      return (data || []) as MovimientoRendicion[];
+    }
+
+    return getLocal<MovimientoRendicion[]>(LOCAL_MOVIMIENTOS_KEY, [])
+      .filter(m => m.rendicion_id === rendicionId)
+      .sort((a, b) => (a.orden || 0) - (b.orden || 0));
+  },
+
   /** Para la vista previa: cuotas que no se van a volver a emitir. */
   async getInstallmentsEnPlanillasAbiertas(): Promise<Set<string>> {
     const supabase = getSupabaseClient();
@@ -428,7 +450,8 @@ export const rendicionService = {
     rendicionId: string,
     montos: Record<string, number | null>,
     fecha: string,
-    cerrar: boolean
+    cerrar: boolean,
+    movimientos: MovimientoRendicion[] | null = null
   ): Promise<void> {
     const supabase = getSupabaseClient();
     if (supabase) {
@@ -437,6 +460,14 @@ export const rendicionService = {
         p_montos: montos,
         p_fecha: fecha,
         p_cerrar: cerrar,
+        p_movimientos: movimientos
+          ? movimientos.map(m => ({
+              concepto: m.concepto,
+              tipo: m.tipo,
+              importe: m.importe,
+              detalle: m.detalle || null,
+            }))
+          : null,
       });
       if (error) throw describeSupabaseError(error, 'No se pudo guardar la rendición');
       return;
@@ -447,6 +478,12 @@ export const rendicionService = {
     const rendicion = rendiciones.find(r => r.id === rendicionId);
     if (!rendicion) throw new Error('La planilla no existe.');
     const cierra = cerrar || rendicion.estado === 'rendida';
+    (movimientos || []).forEach((m, i) => {
+      if (!m.concepto?.trim()) throw new Error(`El movimiento ${i + 1} no tiene concepto.`);
+      if (!(Number(m.importe) > 0)) {
+        throw new Error(`El movimiento ${i + 1} (${m.concepto}) tiene que tener un importe mayor a cero.`);
+      }
+    });
 
     const todos = getLocal<RendicionItem[]>(LOCAL_ITEMS_KEY, []);
     const propios = todos
@@ -492,6 +529,24 @@ export const rendicionService = {
     const cargados = propios.filter(i => i.monto_cobrado !== null && i.monto_cobrado !== undefined);
     const total = round2(cargados.reduce((a, i) => a + Number(i.monto_cobrado), 0));
 
+    let movs = getLocal<MovimientoRendicion[]>(LOCAL_MOVIMIENTOS_KEY, []);
+    if (movimientos) {
+      movs = [
+        ...movs.filter(m => m.rendicion_id !== rendicionId),
+        ...movimientos.map((m, i) => ({
+          ...m,
+          id: crypto.randomUUID(),
+          rendicion_id: rendicionId,
+          importe: round2(m.importe),
+          orden: i + 1,
+        })),
+      ];
+      setLocal(LOCAL_MOVIMIENTOS_KEY, movs);
+    }
+    const propiosMovs = movs.filter(m => m.rendicion_id === rendicionId);
+    const sumar = (tipo: string) =>
+      round2(propiosMovs.filter(m => m.tipo === tipo).reduce((a, m) => a + Number(m.importe), 0));
+
     setLocal(
       LOCAL_ITEMS_KEY,
       todos.map(i => propios.find(p => p.id === i.id) || i)
@@ -504,6 +559,8 @@ export const rendicionService = {
               ...r,
               recibos_cargados: cargados.length,
               total_cobrado: cierra || cargados.length > 0 ? total : null,
+              total_ingresos: sumar('ingreso'),
+              total_egresos: sumar('egreso'),
               estado: cierra ? 'rendida' : r.estado,
               fecha_rendicion: cerrar && r.estado === 'emitida' ? fecha : r.fecha_rendicion,
             }
@@ -632,6 +689,10 @@ export const rendicionService = {
     setLocal(
       LOCAL_ITEMS_KEY,
       getLocal<RendicionItem[]>(LOCAL_ITEMS_KEY, []).filter(i => i.rendicion_id !== rendicion.id)
+    );
+    setLocal(
+      LOCAL_MOVIMIENTOS_KEY,
+      getLocal<MovimientoRendicion[]>(LOCAL_MOVIMIENTOS_KEY, []).filter(m => m.rendicion_id !== rendicion.id)
     );
   },
 };

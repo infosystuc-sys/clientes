@@ -10,11 +10,14 @@ import {
   X,
   Users,
   AlertCircle,
+  Wallet,
 } from 'lucide-react';
 import {
   Client,
   Cobrador,
   CobradorInput,
+  ConceptoRendicion,
+  ConceptoRendicionInput,
   Rubro,
   RubroInput,
   Zona,
@@ -35,6 +38,10 @@ interface SettingsManagerProps {
   onCreateRubro: (input: RubroInput) => Promise<void>;
   onUpdateRubro: (rubro: Rubro, input: RubroInput) => Promise<void>;
   onDeleteRubro: (rubro: Rubro) => Promise<void>;
+  conceptos: ConceptoRendicion[];
+  onCreateConcepto: (input: ConceptoRendicionInput) => Promise<void>;
+  onUpdateConcepto: (concepto: ConceptoRendicion, input: ConceptoRendicionInput) => Promise<void>;
+  onDeleteConcepto: (concepto: ConceptoRendicion) => Promise<void>;
 }
 
 const inputClass =
@@ -226,6 +233,10 @@ export const SettingsManager: React.FC<SettingsManagerProps> = ({
   onCreateRubro,
   onUpdateRubro,
   onDeleteRubro,
+  conceptos,
+  onCreateConcepto,
+  onUpdateConcepto,
+  onDeleteConcepto,
 }) => {
   const [nuevoCobrador, setNuevoCobrador] = useState('');
   const [nuevoTelefono, setNuevoTelefono] = useState('');
@@ -259,8 +270,8 @@ export const SettingsManager: React.FC<SettingsManagerProps> = ({
       <div>
         <h2 className="text-2xl font-bold text-white tracking-tight">Configuración</h2>
         <p className="text-xs text-slate-400">
-          Zonas de cobranza, cobradores y rubros. Renombrar acá actualiza a todos los clientes
-          y préstamos asignados.
+          Zonas de cobranza, cobradores, rubros y conceptos de rendición. Renombrar acá
+          actualiza a todos los clientes y préstamos asignados.
         </p>
       </div>
 
@@ -287,6 +298,18 @@ export const SettingsManager: React.FC<SettingsManagerProps> = ({
           onCreate={onCreateRubro}
           onRename={(rubro, nombre) => onUpdateRubro(rubro, { nombre })}
           onDelete={onDeleteRubro}
+        />
+
+        <CatalogPanel
+          title="Conceptos de rendición"
+          icon={Wallet}
+          accent="bg-violet-600/20 border-violet-500/30 text-violet-400"
+          placeholder="Código y nombre (ej. 5.2.3 Combustible)"
+          items={conceptos}
+          usageCount={() => 0}
+          onCreate={onCreateConcepto}
+          onRename={(concepto, nombre) => onUpdateConcepto(concepto, { nombre })}
+          onDelete={onDeleteConcepto}
         />
 
         {/* Cobradores tiene campos propios, no entra en el panel genérico */}

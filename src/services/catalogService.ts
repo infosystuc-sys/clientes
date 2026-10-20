@@ -4,6 +4,8 @@ import {
   Client,
   Cobrador,
   CobradorInput,
+  ConceptoRendicion,
+  ConceptoRendicionInput,
   Loan,
   Rubro,
   RubroInput,
@@ -13,6 +15,7 @@ import {
 
 const LOCAL_ZONAS_KEY = 'clientflow_demo_zonas';
 const LOCAL_RUBROS_KEY = 'clientflow_demo_rubros';
+const LOCAL_CONCEPTOS_KEY = 'clientflow_demo_conceptos_rendicion';
 const LOCAL_COBRADORES_KEY = 'clientflow_demo_cobradores';
 const LOCAL_CLIENTS_KEY = 'clientflow_demo_clients';
 const LOCAL_LOANS_KEY = 'clientflow_demo_loans';
@@ -45,6 +48,28 @@ const INITIAL_RUBROS: Rubro[] = ['Kiosco', 'Verdulería', 'Albañilería', 'Pelu
     created_at: new Date().toISOString(),
   })
 );
+
+// Los de la planilla en papel (mismos que siembra la migración 014)
+const INITIAL_CONCEPTOS: ConceptoRendicion[] = [
+  '1.2.1 Cobranza realizada',
+  '1.3.1 Anticipo',
+  '1.3.1 Viáticos',
+  '1.3.5 F.A.R',
+  '1.3.7 Anticipo',
+  '2.1.2 Clientes Nuevos 3%',
+  '2.1.2 Clientes Nuevos 4%',
+  '2.1.2 Entrega de M/C Clientes nuevos',
+  '2.1.2 Entrega de M/C renovaciones',
+  '5.1.18 Gastos varios',
+  '5.2.16 Transporte',
+  '5.2.3 Combustible',
+  '5.2.8 Alojamiento',
+].map((nombre, i) => ({
+  id: `k${String(i).padStart(7, '0')}-0000-4000-8000-000000000000`,
+  nombre,
+  activo: true,
+  created_at: new Date().toISOString(),
+}));
 
 function getLocal<T>(key: string, defaultData: T): T {
   const data = localStorage.getItem(key);
@@ -374,5 +399,95 @@ export const catalogService = {
       getLocal<Rubro[]>(LOCAL_RUBROS_KEY, INITIAL_RUBROS).filter(r => r.id !== rubro.id)
     );
     cascadeLocal('rubro', rubro.nombre, null);
+  },
+
+  // -------------------------------------------------------------------------
+  // CONCEPTOS DE RENDICIÓN (ingresos y egresos del cobrador)
+  // -------------------------------------------------------------------------
+  // Los movimientos guardan el nombre como texto: renombrar o borrar un
+  // concepto no cambia las rendiciones ya cargadas.
+
+  async getConceptos(): Promise<ConceptoRendicion[]> {
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('conceptos_rendicion')
+        .select('*')
+        .order('nombre', { ascending: true });
+      if (error) throw describeSupabaseError(error, 'No se pudieron cargar los conceptos');
+      return (data || []) as ConceptoRendicion[];
+    }
+
+    return getLocal<ConceptoRendicion[]>(LOCAL_CONCEPTOS_KEY, INITIAL_CONCEPTOS).sort((a, b) =>
+      a.nombre.localeCompare(b.nombre, 'es', { numeric: true })
+    );
+  },
+
+  async createConcepto(input: ConceptoRendicionInput): Promise<ConceptoRendicion> {
+    const nombre = input.nombre.trim();
+    if (!nombre) throw new Error('El concepto necesita un nombre.');
+
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('conceptos_rendicion')
+        .insert([{ ...input, nombre }])
+        .select()
+        .single();
+      if (error) throw describeSupabaseError(error, 'No se pudo crear el concepto');
+      return data as ConceptoRendicion;
+    }
+
+    const conceptos = getLocal<ConceptoRendicion[]>(LOCAL_CONCEPTOS_KEY, INITIAL_CONCEPTOS);
+    if (conceptos.some(c => c.nombre.toLowerCase() === nombre.toLowerCase())) {
+      throw new Error(`Ya existe un concepto llamado "${nombre}".`);
+    }
+    const nuevo: ConceptoRendicion = {
+      id: crypto.randomUUID(),
+      nombre,
+      descripcion: input.descripcion,
+      activo: input.activo ?? true,
+      created_at: new Date().toISOString(),
+    };
+    setLocal(LOCAL_CONCEPTOS_KEY, [...conceptos, nuevo]);
+    return nuevo;
+  },
+
+  async updateConcepto(concepto: ConceptoRendicion, input: ConceptoRendicionInput): Promise<ConceptoRendicion> {
+    const nombre = (input.nombre ?? concepto.nombre).trim();
+    if (!nombre) throw new Error('El concepto necesita un nombre.');
+
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('conceptos_rendicion')
+        .update({ ...input, nombre })
+        .eq('id', concepto.id)
+        .select()
+        .single();
+      if (error) throw describeSupabaseError(error, 'No se pudo actualizar el concepto');
+      return data as ConceptoRendicion;
+    }
+
+    const conceptos = getLocal<ConceptoRendicion[]>(LOCAL_CONCEPTOS_KEY, INITIAL_CONCEPTOS);
+    const index = conceptos.findIndex(c => c.id === concepto.id);
+    if (index === -1) throw new Error('No se encontró el concepto.');
+    conceptos[index] = { ...conceptos[index], ...input, nombre };
+    setLocal(LOCAL_CONCEPTOS_KEY, conceptos);
+    return conceptos[index];
+  },
+
+  async deleteConcepto(concepto: ConceptoRendicion): Promise<void> {
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      const { error } = await supabase.from('conceptos_rendicion').delete().eq('id', concepto.id);
+      if (error) throw describeSupabaseError(error, 'No se pudo eliminar el concepto');
+      return;
+    }
+
+    setLocal(
+      LOCAL_CONCEPTOS_KEY,
+      getLocal<ConceptoRendicion[]>(LOCAL_CONCEPTOS_KEY, INITIAL_CONCEPTOS).filter(c => c.id !== concepto.id)
+    );
   },
 };

@@ -26,6 +26,9 @@ import {
   Rendicion,
   Rubro,
   RubroInput,
+  ConceptoRendicion,
+  ConceptoRendicionInput,
+  MovimientoRendicion,
   SupabaseCredentials,
   Zona,
   ZonaInput,
@@ -45,6 +48,7 @@ export default function App() {
   const [zonas, setZonas] = useState<Zona[]>([]);
   const [cobradores, setCobradores] = useState<Cobrador[]>([]);
   const [rubros, setRubros] = useState<Rubro[]>([]);
+  const [conceptos, setConceptos] = useState<ConceptoRendicion[]>([]);
   const [rendiciones, setRendiciones] = useState<Rendicion[]>([]);
   const [credentials, setCredentials] = useState<SupabaseCredentials>(getSupabaseCredentials());
   const [currentUser, setCurrentUser] = useState<string | null>(null);
@@ -82,7 +86,7 @@ export default function App() {
       // La cobranza en Modo Demo se arma cruzando los clientes, así que primero
       // hacen falta ellos.
       const clientData = await clientService.getClients();
-      const [loanData, collectionData, zonaData, cobradorData, rubroData, rendicionData] =
+      const [loanData, collectionData, zonaData, cobradorData, rubroData, rendicionData, conceptoData] =
         await Promise.all([
           loanService.getLoans(),
           loanService.getCollection(clientData),
@@ -90,6 +94,7 @@ export default function App() {
           catalogService.getCobradores(),
           catalogService.getRubros(),
           rendicionService.getRendiciones(),
+          catalogService.getConceptos(),
         ]);
 
       setClients(clientData);
@@ -99,6 +104,7 @@ export default function App() {
       setCobradores(cobradorData);
       setRubros(rubroData);
       setRendiciones(rendicionData);
+      setConceptos(conceptoData);
     } catch (err: any) {
       console.error('Error cargando datos del sistema:', err);
       setLoadError(err?.message || 'No se pudieron cargar los datos.');
@@ -285,6 +291,37 @@ export default function App() {
     }
   };
 
+  const handleCreateConcepto = async (input: ConceptoRendicionInput) => {
+    try {
+      await runAction(
+        () => catalogService.createConcepto(input).then(() => undefined),
+        `Concepto "${input.nombre}" creado.`
+      );
+    } catch {
+      /* el toast ya informó el error */
+    }
+  };
+
+  const handleUpdateConcepto = async (concepto: ConceptoRendicion, input: ConceptoRendicionInput) => {
+    try {
+      await runAction(
+        () => catalogService.updateConcepto(concepto, input).then(() => undefined),
+        'Concepto actualizado. Las rendiciones ya cargadas conservan el nombre anterior.'
+      );
+    } catch {
+      /* el toast ya informó el error */
+    }
+  };
+
+  const handleDeleteConcepto = async (concepto: ConceptoRendicion) => {
+    if (!window.confirm(`¿Eliminar el concepto "${concepto.nombre}"? Las rendiciones ya cargadas lo conservan.`)) return;
+    try {
+      await runAction(() => catalogService.deleteConcepto(concepto), 'Concepto eliminado.');
+    } catch {
+      /* el toast ya informó el error */
+    }
+  };
+
   const handleCreateRubro = async (input: RubroInput) => {
     try {
       await runAction(
@@ -386,9 +423,10 @@ export default function App() {
     rendicion: Rendicion,
     montos: Record<string, number | null>,
     fecha: string,
-    cerrar: boolean
+    cerrar: boolean,
+    movimientos: MovimientoRendicion[] | null
   ): Promise<void> => {
-    await rendicionService.guardar(rendicion.id, montos, fecha, cerrar);
+    await rendicionService.guardar(rendicion.id, montos, fecha, cerrar, movimientos);
     await loadAllData();
     showToast(
       rendicion.estado === 'rendida'
@@ -556,6 +594,7 @@ export default function App() {
               collection={collection}
               zonas={zonaNames}
               cobradores={cobradorNames}
+              conceptos={conceptos.filter(c => c.activo !== false).map(c => c.nombre)}
               onEmitir={handleEmitir}
               onRendir={handleRendir}
               onAnular={handleAnularRendicion}
@@ -578,6 +617,10 @@ export default function App() {
               onCreateRubro={handleCreateRubro}
               onUpdateRubro={handleUpdateRubro}
               onDeleteRubro={handleDeleteRubro}
+              conceptos={conceptos}
+              onCreateConcepto={handleCreateConcepto}
+              onUpdateConcepto={handleUpdateConcepto}
+              onDeleteConcepto={handleDeleteConcepto}
             />
           )}
 

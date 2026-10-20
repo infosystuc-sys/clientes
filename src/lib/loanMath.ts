@@ -24,6 +24,38 @@ export function installmentAmount(total: number, count: number): number {
   return round2((Number(total) || 0) / n);
 }
 
+/** Suma días a una fecha `YYYY-MM-DD` sin arrastrar la zona horaria. */
+export function addDays(isoDate: string, days: number): string {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+/** 0 = domingo ... 4 = jueves ... 6 = sábado. */
+function diaSemana(isoDate: string): number {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}
+
+/**
+ * Ciclo de cobranza: de jueves a sábado, ambos inclusive. De jueves a sábado
+ * devuelve el ciclo en curso; de domingo a miércoles, el que viene.
+ */
+export function cicloDeCobranza(isoDate: string): { desde: string; hasta: string } {
+  const dow = diaSemana(isoDate);
+  // Domingo a miércoles: faltan días para el jueves; jueves a sábado: ya pasó
+  const jueves = addDays(isoDate, 4 - dow);
+  return { desde: jueves, hasta: addDays(jueves, 2) };
+}
+
+/** El primer ciclo que empieza después de `isoDate` (por ejemplo, el `hasta` de una planilla). */
+export function siguienteCiclo(isoDate: string): { desde: string; hasta: string } {
+  const dow = diaSemana(isoDate);
+  const jueves = addDays(isoDate, ((4 - dow + 7) % 7) || 7);
+  return { desde: jueves, hasta: addDays(jueves, 2) };
+}
+
 /** Suma semanas a una fecha `YYYY-MM-DD` sin arrastrar la zona horaria. */
 export function addWeeks(isoDate: string, weeks: number): string {
   const [y, m, d] = isoDate.split('-').map(Number);

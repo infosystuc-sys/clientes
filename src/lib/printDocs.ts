@@ -1,4 +1,4 @@
-import { Rendicion, RendicionItem } from '../types/database';
+import { MovimientoRendicion, Rendicion, RendicionItem } from '../types/database';
 import { formatDate } from './loanMath';
 
 /** Datos de la empresa que salen en los recibos. */
@@ -322,6 +322,11 @@ const PLANILLA_CSS = `
   .num { text-align: right; white-space: nowrap; }
   .cobrado { width: 26mm; }
   tfoot td { font-weight: bold; background: #f3f3f3; }
+  .resumen { display: flex; gap: 6mm; margin-top: 5mm; align-items: flex-start; page-break-inside: avoid; }
+  .resumen .movs { flex: 2; }
+  .resumen .totales { flex: 1; }
+  .totales td { font-size: 9pt; }
+  .totales .resultado td { font-weight: bold; font-size: 10.5pt; background: #f3f3f3; }
   .firmas { display: flex; gap: 20mm; margin-top: 16mm; }
   .firmas div { flex: 1; border-top: 1px solid #000; padding-top: 1.5mm; text-align: center; font-size: 8.5pt; }
   @media screen { body { background: #e5e7eb; padding: 10mm; } main { background: #fff; padding: 8mm; } }
@@ -332,9 +337,13 @@ export function buildPlanillaHtml(
   rendicion: Rendicion,
   items: RendicionItem[],
   logo: string,
-  autoPrint = true
+  autoPrint = true,
+  movimientos: MovimientoRendicion[] = []
 ): string {
   const rendida = rendicion.estado === 'rendida';
+  const ingresos = movimientos.filter(m => m.tipo === 'ingreso').reduce((a, m) => a + Number(m.importe), 0);
+  const egresos = movimientos.filter(m => m.tipo === 'egreso').reduce((a, m) => a + Number(m.importe), 0);
+  const cobrados = items.filter(i => Number(i.monto_cobrado) > 0).length;
   const totalCuotas = items.reduce((a, i) => a + Number(i.importe), 0);
   const totalCobrado = items.reduce((a, i) => a + Number(i.monto_cobrado || 0), 0);
 
@@ -397,6 +406,44 @@ export function buildPlanillaHtml(
       </tfoot>
     </table>
 
+    ${
+      rendida || movimientos.length
+        ? `
+    <div class="resumen">
+      <table class="movs">
+        <thead>
+          <tr><th>Concepto</th><th>Detalle</th><th class="num">Ingresos</th><th class="num">Egresos</th></tr>
+        </thead>
+        <tbody>${
+          movimientos.length
+            ? movimientos
+                .map(
+                  m => `
+          <tr>
+            <td>${esc(m.concepto)}</td>
+            <td>${esc(m.detalle || '')}</td>
+            <td class="num">${m.tipo === 'ingreso' ? esc(n(m.importe)) : ''}</td>
+            <td class="num">${m.tipo === 'egreso' ? esc(n(m.importe)) : ''}</td>
+          </tr>`
+                )
+                .join('')
+            : '<tr><td colspan="4">Sin ingresos ni egresos</td></tr>'
+        }</tbody>
+        <tfoot>
+          <tr><td colspan="2">TOTAL</td><td class="num">${esc(n(ingresos))}</td><td class="num">${esc(n(egresos))}</td></tr>
+        </tfoot>
+      </table>
+      <table class="totales">
+        <tr><td>Recibos a cobrar (${esc(items.length)})</td><td class="num">${esc(money(totalCuotas))}</td></tr>
+        <tr><td>Recibos cobrados (${esc(cobrados)})</td><td class="num">${esc(money(totalCobrado))}</td></tr>
+        <tr><td>+ Ingresos</td><td class="num">${esc(money(ingresos))}</td></tr>
+        <tr><td>− Egresos</td><td class="num">${esc(money(egresos))}</td></tr>
+        <tr class="resultado"><td>RESULTADO</td><td class="num">${esc(money(totalCobrado + ingresos - egresos))}</td></tr>
+      </table>
+    </div>`
+        : ''
+    }
+
     <div class="firmas">
       <div>Firma del cobrador</div>
       <div>Recibió (administración)</div>
@@ -406,6 +453,10 @@ export function buildPlanillaHtml(
   return buildDocument(`Planilla ${rendicion.numero}`, body, PLANILLA_CSS, autoPrint);
 }
 
-export function printPlanilla(rendicion: Rendicion, items: RendicionItem[]): void {
-  openPrintWindow(buildPlanillaHtml(rendicion, items, logoUrl()));
+export function printPlanilla(
+  rendicion: Rendicion,
+  items: RendicionItem[],
+  movimientos: MovimientoRendicion[] = []
+): void {
+  openPrintWindow(buildPlanillaHtml(rendicion, items, logoUrl(), true, movimientos));
 }

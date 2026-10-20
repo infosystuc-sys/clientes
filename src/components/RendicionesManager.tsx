@@ -13,9 +13,24 @@ import {
   AlertCircle,
   Loader2,
   Pencil,
+  ArrowRightCircle,
 } from 'lucide-react';
-import { CollectionRow, EmisionParams, Rendicion, RendicionItem } from '../types/database';
-import { addWeeks, formatDate, formatMoney, round2, today } from '../lib/loanMath';
+import {
+  CollectionRow,
+  EmisionParams,
+  MovimientoRendicion,
+  Rendicion,
+  RendicionItem,
+} from '../types/database';
+import {
+  addWeeks,
+  cicloDeCobranza,
+  formatDate,
+  formatMoney,
+  round2,
+  siguienteCiclo,
+  today,
+} from '../lib/loanMath';
 import { printPlanilla, printRecibos } from '../lib/printDocs';
 import { rendicionService } from '../services/rendicionService';
 import { RendirModal } from './RendirModal';
@@ -25,31 +40,18 @@ interface RendicionesManagerProps {
   collection: CollectionRow[];
   zonas: string[];
   cobradores: string[];
+  /** Conceptos de ingresos y egresos (Configuración). */
+  conceptos: string[];
   onEmitir: (params: EmisionParams) => Promise<Rendicion>;
   onRendir: (
     rendicion: Rendicion,
     montos: Record<string, number | null>,
     fecha: string,
-    cerrar: boolean
+    cerrar: boolean,
+    movimientos: MovimientoRendicion[] | null
   ) => Promise<void>;
   onAnular: (rendicion: Rendicion) => Promise<void>;
   onError: (message: string) => void;
-}
-
-/** Lunes de la semana de `isoDate`. */
-function startOfWeek(isoDate: string): string {
-  const [y, m, d] = isoDate.split('-').map(Number);
-  const date = new Date(Date.UTC(y, m - 1, d));
-  const dow = date.getUTCDay();
-  date.setUTCDate(date.getUTCDate() + (dow === 0 ? -6 : 1 - dow));
-  return date.toISOString().slice(0, 10);
-}
-
-/** Domingo de la misma semana: el rango es inclusivo. */
-function endOfWeek(lunes: string): string {
-  const [y, m, d] = lunes.split('-').map(Number);
-  const date = new Date(Date.UTC(y, m - 1, d + 6));
-  return date.toISOString().slice(0, 10);
 }
 
 export const RendicionesManager: React.FC<RendicionesManagerProps> = ({
@@ -57,17 +59,20 @@ export const RendicionesManager: React.FC<RendicionesManagerProps> = ({
   collection,
   zonas,
   cobradores,
+  conceptos,
   onEmitir,
   onRendir,
   onAnular,
   onError,
 }) => {
-  const lunes = startOfWeek(today());
-  const [desde, setDesde] = useState(lunes);
-  const [hasta, setHasta] = useState(endOfWeek(lunes));
+  // Los ciclos de cobranza van de jueves a sábado, ambos inclusive
+  const ciclo = cicloDeCobranza(today());
+  const [desde, setDesde] = useState(ciclo.desde);
+  const [hasta, setHasta] = useState(ciclo.hasta);
   const [cobrador, setCobrador] = useState('');
   const [zona, setZona] = useState('');
-  const [incluirVencidas, setIncluirVencidas] = useState(false);
+  // Lo que quedó sin cobrar en ciclos anteriores vuelve a salir en la planilla
+  const [incluirVencidas, setIncluirVencidas] = useState(true);
   const [isEmitting, setIsEmitting] = useState(false);
   const [emitError, setEmitError] = useState<string | null>(null);
   const [recienEmitida, setRecienEmitida] = useState<Rendicion | null>(null);
@@ -77,6 +82,7 @@ export const RendicionesManager: React.FC<RendicionesManagerProps> = ({
 
   const [rindiendo, setRindiendo] = useState<Rendicion | null>(null);
   const [rindiendoItems, setRindiendoItems] = useState<RendicionItem[]>([]);
+  const [rindiendoMovs, setRindiendoMovs] = useState<MovimientoRendicion[]>([]);
   const [cargandoItems, setCargandoItems] = useState(false);
 
   // Si la planilla recién emitida se rindió o anuló, el aviso ya no aplica
@@ -116,11 +122,48 @@ export const RendicionesManager: React.FC<RendicionesManagerProps> = ({
     };
   }, [collection, desde, hasta, cobrador, zona, incluirVencidas, yaEmitidas]);
 
-  const setSemana = (offset: number) => {
-    const inicio = addWeeks(lunes, offset);
-    setDesde(inicio);
-    setHasta(endOfWeek(inicio));
+  const setCiclo = (offset: number) => {
+    setDesde(addWeeks(ciclo.desde, offset));
+    setHasta(addWeeks(ciclo.hasta, offset));
   };
+
+  /**
+   * Una vez rendida una planilla, emite la del ciclo siguiente para el mismo
+   * cobrador y zona. Incluye lo atrasado: lo que no se cobró vuelve a salir.
+   */
+  const emitirSiguiente = async (r: Rendicion) => {
+    const prox = siguienteCiclo(r.hasta);
+    const confirmado = window.confirm(
+      `¿Emitir la planilla del ciclo ${formatDate(prox.desde)} al ${formatDate(prox.hasta)} para ` +
+        `${r.cobrador || 'todos los cobradores'} · ${r.zona || 'todas las zonas'}? ` +
+        'Incluye las cuotas atrasadas que quedaron sin cobrar.'
+    );
+    if (!confirmado) return;
+
+    setBusyId(`${r.id}-siguiente`);
+    setRecienEmitida(null);
+    try {
+      const nueva = await onEmitir({
+        desde: prox.desde,
+        hasta: prox.hasta,
+        cobrador: r.cobrador || undefined,
+        zona: r.zona || undefined,
+        incluirVencidas: true,
+      });
+      setRecienEmitida(nueva);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (err: any) {
+      onError(err?.message || 'No se pudo emitir la planilla siguiente.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  /** Ya hay una planilla posterior para el mismo cobrador y zona. */
+  const tieneSiguiente = (r: Rendicion) =>
+    rendiciones.some(
+      x => x.id !== r.id && (x.cobrador || '') === (r.cobrador || '') && (x.zona || '') === (r.zona || '') && x.desde > r.hasta
+    );
 
   const handleEmitir = async () => {
     setIsEmitting(true);
@@ -148,7 +191,7 @@ export const RendicionesManager: React.FC<RendicionesManagerProps> = ({
     try {
       const items = await rendicionService.getItems(rendicion.id);
       if (tipo === 'recibos') printRecibos(rendicion, items);
-      else printPlanilla(rendicion, items);
+      else printPlanilla(rendicion, items, await rendicionService.getMovimientos(rendicion.id));
     } catch (err: any) {
       onError(err?.message || 'No se pudo preparar la impresión.');
     } finally {
@@ -159,9 +202,15 @@ export const RendicionesManager: React.FC<RendicionesManagerProps> = ({
   const abrirRendicion = async (rendicion: Rendicion) => {
     setRindiendo(rendicion);
     setRindiendoItems([]);
+    setRindiendoMovs([]);
     setCargandoItems(true);
     try {
-      setRindiendoItems(await rendicionService.getItems(rendicion.id));
+      const [items, movs] = await Promise.all([
+        rendicionService.getItems(rendicion.id),
+        rendicionService.getMovimientos(rendicion.id),
+      ]);
+      setRindiendoItems(items);
+      setRindiendoMovs(movs);
     } catch (err: any) {
       onError(err?.message || 'No se pudieron cargar los recibos.');
       setRindiendo(null);
@@ -179,8 +228,8 @@ export const RendicionesManager: React.FC<RendicionesManagerProps> = ({
       <div>
         <h2 className="text-2xl font-bold text-white tracking-tight">Recibos y Rendición</h2>
         <p className="text-xs text-slate-400">
-          Emití los recibos de cada cobrador para un período, imprimilos, y cuando vuelva cargá
-          lo que cobró.
+          Emití los recibos de cada cobrador para el ciclo de cobranza (de jueves a sábado),
+          imprimilos, y cuando vuelva cargá lo que cobró y sus ingresos y egresos.
         </p>
       </div>
 
@@ -238,13 +287,13 @@ export const RendicionesManager: React.FC<RendicionesManagerProps> = ({
 
           <div className="flex flex-wrap items-center gap-2">
             {[
-              { label: 'Semana pasada', offset: -1 },
-              { label: 'Esta semana', offset: 0 },
-              { label: 'Semana que viene', offset: 1 },
+              { label: 'Ciclo anterior', offset: -1 },
+              { label: 'Este ciclo (jue a sáb)', offset: 0 },
+              { label: 'Próximo ciclo', offset: 1 },
             ].map(s => (
               <button
                 key={s.offset}
-                onClick={() => setSemana(s.offset)}
+                onClick={() => setCiclo(s.offset)}
                 className="px-3 py-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-700/60 border border-slate-700 text-slate-300 text-[11px] font-medium transition-colors"
               >
                 {s.label}
@@ -373,6 +422,21 @@ export const RendicionesManager: React.FC<RendicionesManagerProps> = ({
                             <span className="font-semibold text-emerald-400">
                               {formatMoney(r.total_cobrado || 0)}
                             </span>
+                            {(Number(r.total_ingresos) || 0) + (Number(r.total_egresos) || 0) > 0 && (
+                              <span
+                                className="block text-[10px] text-slate-400"
+                                title={`Ingresos ${formatMoney(r.total_ingresos || 0)} · Egresos ${formatMoney(r.total_egresos || 0)}`}
+                              >
+                                Resultado{' '}
+                                {formatMoney(
+                                  round2(
+                                    Number(r.total_cobrado || 0) +
+                                      Number(r.total_ingresos || 0) -
+                                      Number(r.total_egresos || 0)
+                                  )
+                                )}
+                              </span>
+                            )}
                             {diferencia !== 0 && (
                               <span className={`block text-[10px] ${diferencia < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
                                 {diferencia > 0 ? '+' : ''}
@@ -422,6 +486,21 @@ export const RendicionesManager: React.FC<RendicionesManagerProps> = ({
                           >
                             {busyId === `${r.id}-planilla` ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
                           </button>
+                          {rendida && !tieneSiguiente(r) && (
+                            <button
+                              onClick={() => emitirSiguiente(r)}
+                              disabled={busyId !== null}
+                              className="flex items-center gap-1 px-2.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-[11px] font-semibold transition-colors"
+                              title={`Emitir la planilla del ciclo ${formatDate(siguienteCiclo(r.hasta).desde)} al ${formatDate(siguienteCiclo(r.hasta).hasta)} con sus recibos`}
+                            >
+                              {busyId === `${r.id}-siguiente` ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <ArrowRightCircle className="w-3.5 h-3.5" />
+                              )}{' '}
+                              Siguiente planilla
+                            </button>
+                          )}
                           {rendida && (
                             <button
                               onClick={() => abrirRendicion(r)}
@@ -463,9 +542,13 @@ export const RendicionesManager: React.FC<RendicionesManagerProps> = ({
       <RendirModal
         rendicion={rindiendo}
         items={rindiendoItems}
+        movimientos={rindiendoMovs}
+        conceptos={conceptos}
         isLoading={cargandoItems}
         onClose={() => setRindiendo(null)}
-        onSave={(montos, fecha, cerrar) => onRendir(rindiendo as Rendicion, montos, fecha, cerrar)}
+        onSave={(montos, fecha, cerrar, movimientos) =>
+          onRendir(rindiendo as Rendicion, montos, fecha, cerrar, movimientos)
+        }
       />
     </div>
   );

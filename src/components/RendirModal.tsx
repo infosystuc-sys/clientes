@@ -1,19 +1,39 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { X, ClipboardCheck, AlertCircle, CheckCheck, Eraser, Loader2, Save } from 'lucide-react';
-import { Rendicion, RendicionItem } from '../types/database';
+import {
+  X,
+  ClipboardCheck,
+  AlertCircle,
+  CheckCheck,
+  Eraser,
+  Loader2,
+  Save,
+  Plus,
+  Trash2,
+} from 'lucide-react';
+import { MovimientoRendicion, Rendicion, RendicionItem, TipoMovimiento } from '../types/database';
 import { formatDate, formatMoney, round2, today } from '../lib/loanMath';
 import { clienteCredito } from '../lib/printDocs';
 
 interface RendirModalProps {
   rendicion: Rendicion | null;
   items: RendicionItem[];
+  /** Ingresos y egresos ya guardados de la planilla. */
+  movimientos: MovimientoRendicion[];
+  /** Catálogo de conceptos de Configuración. */
+  conceptos: string[];
   isLoading: boolean;
   onClose: () => void;
   /**
    * `montos`: importe por recibo, `null` para dejarlo sin cargar. Con `cerrar`
-   * la planilla queda rendida; sin él sólo se guarda el avance.
+   * la planilla queda rendida; sin él sólo se guarda el avance. `movimientos`
+   * reemplaza a todos los ingresos y egresos de la planilla.
    */
-  onSave: (montos: Record<string, number | null>, fecha: string, cerrar: boolean) => Promise<void>;
+  onSave: (
+    montos: Record<string, number | null>,
+    fecha: string,
+    cerrar: boolean,
+    movimientos: MovimientoRendicion[]
+  ) => Promise<void>;
 }
 
 /**
@@ -34,21 +54,42 @@ export function parseMonto(raw: string): number {
 /** Importe en el formato en que lo escribiría el operador: 6428,51. */
 const toInput = (value: number) => String(round2(value)).replace('.', ',');
 
+/** Un renglón de ingreso/egreso como lo edita el operador. */
+interface FilaMovimiento {
+  key: string;
+  concepto: string;
+  tipo: TipoMovimiento;
+  importe: string;
+  detalle: string;
+}
+
+const filaVacia = (): FilaMovimiento => ({
+  key: crypto.randomUUID(),
+  concepto: '',
+  tipo: 'ingreso',
+  importe: '',
+  detalle: '',
+});
+
 export const RendirModal: React.FC<RendirModalProps> = ({
   rendicion,
   items,
+  movimientos,
+  conceptos,
   isLoading,
   onClose,
   onSave,
 }) => {
   const [montos, setMontos] = useState<Record<string, string>>({});
+  const [filas, setFilas] = useState<FilaMovimiento[]>([]);
+  const [tab, setTab] = useState<'recibos' | 'movimientos'>('recibos');
   const [fecha, setFecha] = useState(today());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const rendida = rendicion?.estado === 'rendida';
 
-  // Al abrir (o cuando llegan los recibos) se precarga lo que ya estaba guardado
+  // Al abrir (o cuando llegan los datos) se precarga lo que ya estaba guardado
   useEffect(() => {
     setMontos(
       Object.fromEntries(
@@ -60,6 +101,20 @@ export const RendirModal: React.FC<RendirModalProps> = ({
     setFecha(rendicion?.fecha_rendicion || today());
     setError(null);
   }, [rendicion?.id, items]);
+
+  useEffect(() => {
+    setFilas(
+      movimientos.map(m => ({
+        key: m.id || crypto.randomUUID(),
+        concepto: m.concepto,
+        tipo: m.tipo,
+        importe: toInput(Number(m.importe)),
+        detalle: m.detalle || '',
+      }))
+    );
+  }, [rendicion?.id, movimientos]);
+
+  useEffect(() => setTab('recibos'), [rendicion?.id]);
 
   const resumen = useMemo(() => {
     let cobrado = 0;
@@ -77,6 +132,22 @@ export const RendirModal: React.FC<RendirModalProps> = ({
       }
     });
     const esperado = items.reduce((a, i) => a + Number(i.importe), 0);
+
+    let ingresos = 0;
+    let egresos = 0;
+    let movInvalidos = 0;
+    filas.forEach(f => {
+      const vacia = !f.concepto && !f.importe.trim() && !f.detalle.trim();
+      if (vacia) return;
+      const valor = parseMonto(f.importe);
+      if (!f.concepto || Number.isNaN(valor) || valor <= 0) {
+        movInvalidos++;
+        return;
+      }
+      if (f.tipo === 'ingreso') ingresos += valor;
+      else egresos += valor;
+    });
+
     return {
       esperado: round2(esperado),
       cobrado: round2(cobrado),
@@ -84,8 +155,12 @@ export const RendirModal: React.FC<RendirModalProps> = ({
       cobrados,
       cargados,
       invalidos,
+      ingresos: round2(ingresos),
+      egresos: round2(egresos),
+      movInvalidos,
+      resultado: round2(cobrado + ingresos - egresos),
     };
-  }, [items, montos]);
+  }, [items, montos, filas]);
 
   if (!rendicion) return null;
 
@@ -94,9 +169,18 @@ export const RendirModal: React.FC<RendirModalProps> = ({
   const cobrarTodo = () =>
     setMontos(Object.fromEntries(items.map(i => [i.id, toInput(Number(i.importe))])));
 
+  const setFila = (key: string, cambios: Partial<FilaMovimiento>) =>
+    setFilas(prev => prev.map(f => (f.key === key ? { ...f, ...cambios } : f)));
+
   const guardar = async (cerrar: boolean) => {
     if (resumen.invalidos > 0) {
+      setTab('recibos');
       setError('Hay importes que no son válidos. Revisá los marcados en rojo.');
+      return;
+    }
+    if (resumen.movInvalidos > 0) {
+      setTab('movimientos');
+      setError('Hay ingresos o egresos incompletos: cada uno necesita concepto e importe mayor a cero.');
       return;
     }
 
@@ -110,7 +194,7 @@ export const RendirModal: React.FC<RendirModalProps> = ({
           ? `No cargaste ningún cobro. La planilla N° ${rendicion.numero} va a quedar rendida en $ 0 y sus cuotas vuelven a estar disponibles para emitir. ¿Continuar?`
           : `Se van a registrar ${resumen.cobrados} cobros por ${formatMoney(resumen.cobrado)} con fecha ${formatDate(fecha)}.${
               sinCargar > 0 ? ` Los ${sinCargar} recibos sin cargar cuentan como no cobrados.` : ''
-            } Después podés modificar la rendición. ¿Cerrar la planilla?`;
+            } Resultado de la rendición: ${formatMoney(resumen.resultado)}. Después podés modificarla. ¿Cerrar la planilla?`;
     }
     if (aviso && !window.confirm(aviso)) return;
 
@@ -124,10 +208,19 @@ export const RendirModal: React.FC<RendirModalProps> = ({
       }
     });
 
+    const movs: MovimientoRendicion[] = filas
+      .filter(f => f.concepto || f.importe.trim() || f.detalle.trim())
+      .map(f => ({
+        concepto: f.concepto,
+        tipo: f.tipo,
+        importe: round2(parseMonto(f.importe)),
+        detalle: f.detalle.trim() || null,
+      }));
+
     setIsSubmitting(true);
     setError(null);
     try {
-      await onSave(payload, fecha, cerrar || rendida);
+      await onSave(payload, fecha, cerrar || rendida, movs);
       onClose();
     } catch (err: any) {
       setError(err?.message || 'No se pudo guardar la rendición.');
@@ -135,6 +228,17 @@ export const RendirModal: React.FC<RendirModalProps> = ({
       setIsSubmitting(false);
     }
   };
+
+  const tabClass = (activa: boolean) =>
+    `px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+      activa
+        ? 'bg-emerald-600/20 border-emerald-500/40 text-emerald-300'
+        : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:text-slate-200'
+    }`;
+  const cellInput =
+    'w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-100 text-xs focus:outline-none focus:border-emerald-500';
+  // Conceptos ya usados que se borraron del catálogo siguen apareciendo
+  const opcionesConcepto = Array.from(new Set([...conceptos, ...filas.map(f => f.concepto).filter(Boolean)]));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fadeIn">
@@ -166,6 +270,14 @@ export const RendirModal: React.FC<RendirModalProps> = ({
 
         {/* Controles */}
         <div className="px-6 py-3 border-b border-slate-800 flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <button onClick={() => setTab('recibos')} className={tabClass(tab === 'recibos')}>
+              Recibos ({items.length})
+            </button>
+            <button onClick={() => setTab('movimientos')} className={tabClass(tab === 'movimientos')}>
+              Ingresos y egresos ({filas.length})
+            </button>
+          </div>
           <div className="flex items-center gap-2">
             <label className="text-xs font-semibold text-slate-300">Fecha de cobro</label>
             <input
@@ -176,28 +288,40 @@ export const RendirModal: React.FC<RendirModalProps> = ({
             />
           </div>
           <div className="flex-1" />
-          <button
-            onClick={cobrarTodo}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-semibold transition-colors"
-            title="Completa cada recibo con el importe total a cobrar"
-          >
-            <CheckCheck className="w-3.5 h-3.5 text-emerald-400" /> Todos pagaron completo
-          </button>
-          <button
-            onClick={() => setMontos({})}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-semibold transition-colors"
-          >
-            <Eraser className="w-3.5 h-3.5" /> Limpiar
-          </button>
+          {tab === 'recibos' ? (
+            <>
+              <button
+                onClick={cobrarTodo}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-semibold transition-colors"
+                title="Completa cada recibo con el importe total a cobrar"
+              >
+                <CheckCheck className="w-3.5 h-3.5 text-emerald-400" /> Todos pagaron completo
+              </button>
+              <button
+                onClick={() => setMontos({})}
+                title="Vacía todos los importes de esta pantalla"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-semibold transition-colors"
+              >
+                <Eraser className="w-3.5 h-3.5" /> Limpiar
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setFilas(prev => [...prev, filaVacia()])}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-semibold transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5 text-emerald-400" /> Agregar movimiento
+            </button>
+          )}
         </div>
 
-        {/* Recibos */}
+        {/* Contenido */}
         <div className="overflow-y-auto flex-1">
           {isLoading ? (
             <div className="p-10 flex items-center justify-center gap-2 text-xs text-slate-400">
-              <Loader2 className="w-4 h-4 animate-spin" /> Cargando recibos...
+              <Loader2 className="w-4 h-4 animate-spin" /> Cargando planilla...
             </div>
-          ) : (
+          ) : tab === 'recibos' ? (
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-950/60 text-slate-400 border-b border-slate-800 font-semibold uppercase tracking-wider text-[10px] sticky top-0">
                 <tr>
@@ -261,6 +385,99 @@ export const RendirModal: React.FC<RendirModalProps> = ({
                 })}
               </tbody>
             </table>
+          ) : filas.length === 0 ? (
+            <div className="p-10 text-center text-xs text-slate-500 space-y-3">
+              <p>Sin ingresos ni egresos cargados para este cobrador.</p>
+              <button
+                onClick={() => setFilas([filaVacia()])}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" /> Agregar movimiento
+              </button>
+            </div>
+          ) : (
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-950/60 text-slate-400 border-b border-slate-800 font-semibold uppercase tracking-wider text-[10px] sticky top-0">
+                <tr>
+                  <th className="py-2.5 px-3">Concepto</th>
+                  <th className="py-2.5 px-3 w-36">Tipo</th>
+                  <th className="py-2.5 px-3 w-36 text-right">Importe</th>
+                  <th className="py-2.5 px-3">Detalle</th>
+                  <th className="py-2.5 px-3 w-10" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                {filas.map(f => {
+                  const valor = parseMonto(f.importe);
+                  const importeInvalido = f.importe.trim() !== '' && (Number.isNaN(valor) || valor <= 0);
+                  return (
+                    <tr key={f.key}>
+                      <td className="py-2 px-3">
+                        <select
+                          value={f.concepto}
+                          onChange={e => setFila(f.key, { concepto: e.target.value })}
+                          className={`${cellInput} ${!f.concepto ? 'text-slate-500' : ''}`}
+                        >
+                          <option value="">Elegí un concepto…</option>
+                          {opcionesConcepto.map(c => (
+                            <option key={c} value={c}>
+                              {c}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="py-2 px-3">
+                        <div className="flex rounded-lg border border-slate-800 overflow-hidden">
+                          {(['ingreso', 'egreso'] as TipoMovimiento[]).map(t => (
+                            <button
+                              key={t}
+                              onClick={() => setFila(f.key, { tipo: t })}
+                              className={`flex-1 py-1.5 text-[11px] font-semibold transition-colors ${
+                                f.tipo === t
+                                  ? t === 'ingreso'
+                                    ? 'bg-emerald-600/30 text-emerald-300'
+                                    : 'bg-rose-600/30 text-rose-300'
+                                  : 'bg-slate-950 text-slate-500 hover:text-slate-300'
+                              }`}
+                            >
+                              {t === 'ingreso' ? 'Ingreso' : 'Egreso'}
+                            </button>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="py-2 px-3">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={f.importe}
+                          onChange={e => setFila(f.key, { importe: e.target.value })}
+                          placeholder="0"
+                          className={`${cellInput} text-right font-mono ${importeInvalido ? 'border-rose-500! text-rose-300' : ''}`}
+                        />
+                      </td>
+                      <td className="py-2 px-3">
+                        <input
+                          type="text"
+                          value={f.detalle}
+                          onChange={e => setFila(f.key, { detalle: e.target.value })}
+                          placeholder="Ej.: Víctor, transferencia, entrega…"
+                          className={cellInput}
+                        />
+                      </td>
+                      <td className="py-2 px-3">
+                        <button
+                          onClick={() => setFilas(prev => prev.filter(x => x.key !== f.key))}
+                          className="p-1.5 rounded-lg hover:bg-rose-600/20 text-slate-500 hover:text-rose-300 transition-colors"
+                          title="Quitar"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           )}
         </div>
 
@@ -273,28 +490,47 @@ export const RendirModal: React.FC<RendirModalProps> = ({
             </div>
           )}
 
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
-            <span className="text-slate-400">
-              Esperado <b className="text-white">{formatMoney(resumen.esperado)}</b>
-            </span>
-            <span className="text-slate-400">
-              Rendido <b className="text-emerald-400">{formatMoney(resumen.cobrado)}</b>
-            </span>
-            <span className="text-slate-400">
-              Diferencia{' '}
-              <b className={resumen.diferencia < 0 ? 'text-rose-400' : 'text-emerald-400'}>
-                {formatMoney(resumen.diferencia)}
-              </b>
-            </span>
-            <span className="text-slate-400">
-              Recibos cargados{' '}
-              <b className="text-white">
-                {resumen.cargados}/{items.length}
-              </b>
-            </span>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+            <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+              <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">A cobrar</p>
+              <p className="font-bold text-white">{formatMoney(resumen.esperado)}</p>
+              <p className="text-[11px] text-slate-400">{items.length} recibos</p>
+            </div>
+            <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+              <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Cobrado</p>
+              <p className="font-bold text-emerald-400">{formatMoney(resumen.cobrado)}</p>
+              <p className="text-[11px] text-slate-400">
+                {resumen.cobrados} recibos
+                {resumen.diferencia !== 0 && (
+                  <span className={resumen.diferencia < 0 ? 'text-rose-400' : 'text-emerald-400'}>
+                    {' '}· {formatMoney(resumen.diferencia)}
+                  </span>
+                )}
+              </p>
+            </div>
+            <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+              <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Ingresos</p>
+              <p className="font-bold text-emerald-300">+ {formatMoney(resumen.ingresos)}</p>
+            </div>
+            <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+              <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Egresos</p>
+              <p className="font-bold text-rose-300">− {formatMoney(resumen.egresos)}</p>
+            </div>
+            <div className="p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-500/30 col-span-2 sm:col-span-1">
+              <p className="text-[10px] uppercase tracking-wider text-emerald-400/80 font-semibold">Resultado</p>
+              <p className={`font-bold ${resumen.resultado < 0 ? 'text-rose-300' : 'text-white'}`}>
+                {formatMoney(resumen.resultado)}
+              </p>
+              <p className="text-[11px] text-slate-400">cobrado + ingresos − egresos</p>
+            </div>
+          </div>
 
-            <div className="flex-1" />
-
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-[11px] text-slate-500 flex-1 min-w-[240px]">
+              {rendida
+                ? 'Los cambios reemplazan los pagos de los recibos modificados. Un recibo vacío cuenta como no cobrado.'
+                : '"Guardar avance" registra lo cargado y deja la planilla abierta. Al cerrar, lo que quede vacío cuenta como no cobrado. Escribí 0 si el cliente fue visitado y no pagó.'}
+            </p>
             <button
               onClick={onClose}
               className="px-4 py-2 rounded-xl border border-slate-700 bg-slate-800/60 text-slate-300 text-xs font-semibold hover:bg-slate-700/60 transition-colors"
@@ -319,12 +555,6 @@ export const RendirModal: React.FC<RendirModalProps> = ({
               {isSubmitting ? 'Guardando...' : rendida ? 'Guardar cambios' : 'Cerrar y rendir'}
             </button>
           </div>
-          <p className="text-[11px] text-slate-500">
-            {rendida
-              ? 'Los cambios reemplazan los pagos de los recibos modificados. Un recibo vacío cuenta como no cobrado.'
-              : '"Guardar avance" registra lo cargado y deja la planilla abierta: al volver a entrar continuás donde quedaste. Al cerrar, lo que quede vacío cuenta como no cobrado y esa cuota vuelve a estar disponible para la próxima planilla. Escribí 0 si el cliente fue visitado y no pagó.'}{' '}
-            Se aceptan pagos parciales.
-          </p>
         </div>
       </div>
     </div>

@@ -166,6 +166,32 @@ export interface Rubro {
 
 export type RubroInput = Pick<Rubro, 'nombre'> & Partial<Omit<Rubro, 'id' | 'created_at'>>;
 
+/** Concepto de ingreso/egreso de la rendición (ej. "5.2.3 Combustible"). */
+export interface ConceptoRendicion {
+  id: string;
+  nombre: string;
+  descripcion?: string;
+  activo: boolean;
+  created_at: string;
+}
+
+export type ConceptoRendicionInput = Pick<ConceptoRendicion, 'nombre'> &
+  Partial<Omit<ConceptoRendicion, 'id' | 'created_at'>>;
+
+export type TipoMovimiento = 'ingreso' | 'egreso';
+
+/** Ingreso o egreso del cobrador cargado en la rendición. */
+export interface MovimientoRendicion {
+  id?: string;
+  rendicion_id?: string;
+  /** Nombre del concepto al momento de cargarlo (registro histórico). */
+  concepto: string;
+  tipo: TipoMovimiento;
+  importe: number;
+  detalle?: string | null;
+  orden?: number;
+}
+
 export interface Cobrador {
   id: string;
   nombre: string;
@@ -203,6 +229,8 @@ export interface Rendicion {
   recibos_cargados: number;
   total_esperado: number;
   total_cobrado?: number | null;
+  total_ingresos?: number;
+  total_egresos?: number;
   observaciones?: string | null;
   created_at: string;
 }
