@@ -202,7 +202,7 @@ function reciboHtml(r: Rendicion, item: RendicionItem, logo: string, duplicado: 
   // Rendido: el recibo sale para el ciclo siguiente, que arranca el jueves
   // posterior a la planilla
   const titulo = !rendido
-    ? `VENCE ${esc(formatDate(item.vencimiento))}`
+    ? esc(formatDate(item.vencimiento))
     : `NO COBRADO ${esc(formatDate(siguienteCiclo(r.hasta).desde))}`;
 
   const planRow = !rendido
