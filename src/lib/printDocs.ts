@@ -1,5 +1,6 @@
 import { MovimientoRendicion, Rendicion, RendicionItem } from '../types/database';
 import { formatDate } from './loanMath';
+import { AjusteImpresion, getAjusteImpresion } from './printConfig';
 
 /** Datos de la empresa que salen en los recibos. */
 export const EMPRESA = {
@@ -95,26 +96,35 @@ function openPrintWindow(html: string): void {
  * los encabezados y pies que agrega el navegador...) y un recibo con medidas
  * fijas se cortaba cuando el área imprimible real era más chica. Por eso la
  * hoja ocupa el 100% del área imprimible que quede (100vh en impresión es el
- * alto de esa área) y cada fila mide un tercio. El margen de 18mm es el
- * pedido por defecto; si el usuario elige otro, los recibos se adaptan.
+ * alto de esa área) y cada fila mide un tercio.
+ *
+ * Encima de eso va el ajuste de la impresora de cada computadora (margen,
+ * desplazamiento y escala), que se calibra desde Configuración con una hoja de
+ * prueba: hay impresoras que además corren la hoja y cortan un borde.
  */
 const FILAS_POR_HOJA = 3;
-const MARGEN_MM = 18;
 const SEPARACION_MM = 4;
 
-const RECIBO_CSS = `
-  @page { size: A4 landscape; margin: ${MARGEN_MM}mm; }
+/** Alto de una fila: un tercio del área imprimible, por la escala. */
+const altoFila = (a: AjusteImpresion) =>
+  `calc((100vh - 2mm) / ${FILAS_POR_HOJA} * ${a.escala / 100})`;
+
+const reciboCss = (a: AjusteImpresion) => `
+  @page { size: A4 landscape; margin: ${a.margenMm}mm; }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; width: 100%; }
   body { font-family: Arial, Helvetica, sans-serif; color: #000; }
 
-  .hoja { width: 100%; break-after: page; page-break-after: always; }
+  .hoja {
+    position: relative; left: ${a.desplazarXMm}mm; top: ${a.desplazarYMm}mm;
+    width: ${a.escala}%; break-after: page; page-break-after: always;
+  }
   .hoja:last-of-type { break-after: auto; page-break-after: auto; }
   .fila {
     position: relative;
     display: grid; grid-template-columns: 1fr 1fr; column-gap: ${SEPARACION_MM}mm;
     /* 2mm de colchón para que el redondeo no empuje la última fila a otra hoja */
-    height: calc((100vh - 2mm) / ${FILAS_POR_HOJA});
+    height: ${altoFila(a)};
     overflow: hidden;
   }
   /* Guía de corte vertical, centrada en el espacio entre columnas */
@@ -128,7 +138,7 @@ const RECIBO_CSS = `
     display: flex; flex-direction: column; 
     /* Toda la letra y los espacios del recibo van en em: escalan con el alto de
        la fila (8,5pt en una fila de 57mm), así entra en cualquier área imprimible. */
-    font-size: calc((100vh - 2mm) / ${FILAS_POR_HOJA} * 0.0526);
+    font-size: calc(${altoFila(a)} * 0.0526);
   }
   .etiqueta {
     position: absolute; top: 0.333em; right: 0.333em; z-index: 1;
@@ -287,7 +297,8 @@ export function buildRecibosHtml(
   rendicion: Rendicion,
   items: RendicionItem[],
   logo: string,
-  autoPrint = true
+  autoPrint = true,
+  ajuste: AjusteImpresion = getAjusteImpresion()
 ): string {
   const hojas: string[] = [];
   for (let i = 0; i < items.length; i += FILAS_POR_HOJA) {
@@ -295,11 +306,68 @@ export function buildRecibosHtml(
     hojas.push(`  <div class="hoja">${filas.join('')}\n  </div>`);
   }
   const body = hojas.join('\n');
-  return buildDocument(`Recibos - Planilla ${rendicion.numero}`, body, RECIBO_CSS, autoPrint);
+  return buildDocument(
+    `Recibos - Planilla ${rendicion.numero}`,
+    body,
+    reciboCss(ajuste),
+    autoPrint
+  );
 }
 
 export function printRecibos(rendicion: Rendicion, items: RendicionItem[]): void {
   openPrintWindow(buildRecibosHtml(rendicion, items, logoUrl()));
+}
+
+/**
+ * Hoja de prueba para calibrar la impresora: el marco ocupa exactamente lo que
+ * ocuparían los recibos, y en cada borde hay una regla con marcas cada 3mm hacia
+ * adentro. El número más chico que se ve impreso en un borde es cuántos mm se
+ * cortaron de ese lado.
+ */
+export function buildPruebaHtml(ajuste: AjusteImpresion, autoPrint = true): string {
+  const marcas = [0, 3, 6, 9, 12, 15];
+  const regla = (lado: 'izq' | 'der' | 'arr' | 'aba') =>
+    marcas
+      .map(mm => `<div class="marca ${lado}" style="--d:${mm}mm"><span>${mm}</span></div>`)
+      .join('');
+  const css =
+    reciboCss(ajuste) +
+    `
+  .marco { position: relative; height: calc(${altoFila(ajuste)} * ${FILAS_POR_HOJA}); border: 1px solid #000; overflow: hidden; }
+  .marca { position: absolute; font-size: 8pt; }
+  .marca.izq, .marca.der { top: 0; bottom: 0; border-left: 1px solid #000; }
+  .marca.izq { left: var(--d); }
+  .marca.der { right: var(--d); }
+  .marca.arr, .marca.aba { left: 0; right: 0; border-top: 1px solid #000; }
+  .marca.arr { top: var(--d); }
+  .marca.aba { bottom: var(--d); }
+  .marca.izq span { position: absolute; top: 30%; left: 0.4mm; }
+  .marca.der span { position: absolute; top: 30%; right: 0.4mm; }
+  .marca.arr span { position: absolute; left: 30%; top: 0.2mm; }
+  .marca.aba span { position: absolute; left: 30%; bottom: 0.2mm; }
+  .texto-prueba { position: absolute; inset: 22mm 22mm; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center; font-size: 11pt; line-height: 1.5; }
+  .texto-prueba h2 { margin: 0 0 3mm; font-size: 16pt; }
+`;
+  const body = `
+  <div class="hoja">
+    <div class="marco">
+      ${regla('izq')}${regla('der')}${regla('arr')}${regla('aba')}
+      <div class="texto-prueba">
+        <h2>Hoja de prueba de impresión</h2>
+        <div>Este marco ocupa lo mismo que los recibos. En cada borde hay marcas cada 3 mm.</div>
+        <div>Si de un lado se ve completo el <b>0</b>, ese borde no se corta.</div>
+        <div>Si el primer número que se ve es, por ejemplo, <b>6</b>, ese borde se cortó 6 mm:</div>
+        <div>corré los recibos 6 mm hacia el lado contrario, o subí el margen, y volvé a probar.</div>
+        <div style="margin-top:3mm;font-size:9pt">Margen ${ajuste.margenMm} mm · Horizontal ${ajuste.desplazarXMm} mm · Vertical ${ajuste.desplazarYMm} mm · Escala ${ajuste.escala}%</div>
+      </div>
+    </div>
+  </div>`;
+  return buildDocument('Prueba de impresión', body, css, autoPrint);
+}
+
+export function printPrueba(ajuste: AjusteImpresion): void {
+  openPrintWindow(buildPruebaHtml(ajuste));
 }
 
 // ---------------------------------------------------------------------------

@@ -12,6 +12,7 @@ import {
   AlertCircle,
   Wallet,
 } from 'lucide-react';
+import { ImpresionPanel } from './ImpresionPanel';
 import {
   Client,
   Cobrador,
@@ -467,6 +468,8 @@ export const SettingsManager: React.FC<SettingsManagerProps> = ({
           </div>
         </div>
       </div>
+
+      <ImpresionPanel onError={message => window.alert(message)} />
 
       <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 text-xs text-slate-400 flex items-start gap-3">
         <AlertCircle className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
