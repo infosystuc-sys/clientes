@@ -90,34 +90,32 @@ function openPrintWindow(html: string): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Medidas en mm. Las impresoras no imprimen en los bordes de la hoja (en la
- * prueba se cortaba el recibo), así que se deja un margen de 18mm por lado
- * (10mm no alcanzó en la HP Smart Tank) y los recibos se calculan para entrar
- * en lo que queda: 261 × 174mm. A lo ancho, 2 recibos con 4mm de separación; a lo alto, 3 filas.
+ * Las medidas NO van fijas en mm: cada navegador e impresora termina usando
+ * márgenes distintos (los de la hoja, los que elige el usuario en el diálogo,
+ * los encabezados y pies que agrega el navegador...) y un recibo con medidas
+ * fijas se cortaba cuando el área imprimible real era más chica. Por eso la
+ * hoja ocupa el 100% del área imprimible que quede (100vh en impresión es el
+ * alto de esa área) y cada fila mide un tercio. El margen de 18mm es el
+ * pedido por defecto; si el usuario elige otro, los recibos se adaptan.
  */
 const FILAS_POR_HOJA = 3;
 const MARGEN_MM = 18;
 const SEPARACION_MM = 4;
-const ANCHO_UTIL_MM = 297 - 2 * MARGEN_MM;
-const ALTO_UTIL_MM = 210 - 2 * MARGEN_MM;
-const ANCHO_RECIBO_MM = (ANCHO_UTIL_MM - SEPARACION_MM) / 2; // 128,5mm
-const ALTO_RECIBO_MM = Math.floor((ALTO_UTIL_MM - 1) / FILAS_POR_HOJA); // 57mm (1mm de colchón)
 
 const RECIBO_CSS = `
   @page { size: A4 landscape; margin: ${MARGEN_MM}mm; }
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #000; }
+  html, body { margin: 0; padding: 0; width: 100%; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #000; }
 
-  .hoja {
-    width: ${ANCHO_UTIL_MM}mm; height: ${ALTO_UTIL_MM - 1}mm; overflow: hidden;
-    display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
-    page-break-after: always;
-  }
-  .hoja:last-of-type { page-break-after: auto; }
+  .hoja { width: 100%; break-after: page; page-break-after: always; }
+  .hoja:last-of-type { break-after: auto; page-break-after: auto; }
   .fila {
     position: relative;
-    display: grid; grid-template-columns: ${ANCHO_RECIBO_MM}mm ${ANCHO_RECIBO_MM}mm;
-    column-gap: ${SEPARACION_MM}mm; height: ${ALTO_RECIBO_MM}mm; flex-shrink: 0;
+    display: grid; grid-template-columns: 1fr 1fr; column-gap: ${SEPARACION_MM}mm;
+    /* 2mm de colchón para que el redondeo no empuje la última fila a otra hoja */
+    height: calc((100vh - 2mm) / ${FILAS_POR_HOJA});
+    overflow: hidden;
   }
   /* Guía de corte vertical, centrada en el espacio entre columnas */
   .fila::before {
@@ -127,50 +125,55 @@ const RECIBO_CSS = `
 
   .recibo {
     position: relative; border: 1px solid #000; overflow: hidden;
-    display: flex; flex-direction: column; font-size: 8.5pt;
+    display: flex; flex-direction: column; 
+    /* Toda la letra y los espacios del recibo van en em: escalan con el alto de
+       la fila (8,5pt en una fila de 57mm), así entra en cualquier área imprimible. */
+    font-size: calc((100vh - 2mm) / ${FILAS_POR_HOJA} * 0.0526);
   }
   .etiqueta {
-    position: absolute; top: 1mm; right: 1mm; z-index: 1;
-    font-size: 7.2pt; font-weight: bold; letter-spacing: 0.3px;
-    padding: 0.2mm 1.5mm; border: 1px solid #000; border-radius: 2mm; background: #fff;
+    position: absolute; top: 0.333em; right: 0.333em; z-index: 1;
+    font-size: 0.847em; font-weight: bold; letter-spacing: 0.3px;
+    padding: 0.067em 0.5em; border: 1px solid #000; border-radius: 0.667em; background: #fff;
   }
 
-  .cabecera { display: flex; justify-content: space-between; align-items: flex-start; padding: 1.2mm 2mm 1mm; border-bottom: 1px solid #000; }
-  .cabecera .empresa { display: flex; align-items: center; gap: 1.3mm; min-width: 0; }
-  .cabecera .empresa img { max-width: 24mm; max-height: 9mm; }
-  .cabecera .empresa .texto { display: none; font-size: 9.9pt; font-weight: bold; color: #1e3a8a; }
-  .cabecera .info-der { text-align: right; padding-right: 22mm; line-height: 1.35; white-space: nowrap; }
-  .cabecera .vence { font-size: 9.5pt; font-weight: bold; }
-  .cabecera .zona, .cabecera .tel { font-size: 7.7pt; color: #222; }
+  .cabecera { display: flex; justify-content: space-between; align-items: flex-start; padding: 0.4em 0.667em 0.333em; border-bottom: 1px solid #000; }
+  .cabecera .empresa { display: flex; align-items: center; gap: 0.434em; min-width: 0; }
+  .cabecera .empresa img { max-width: 8.003em; max-height: 3.001em; }
+  .cabecera .empresa .texto { display: none; font-size: 1.165em; font-weight: bold; color: #1e3a8a; }
+  .cabecera .info-der { text-align: right; padding-right: 7.336em; line-height: 1.35; white-space: nowrap; }
+  .cabecera .vence { font-size: 1.118em; font-weight: bold; }
+  .cabecera .zona, .cabecera .tel { font-size: 0.906em; color: #222; }
 
   /* El nombre siempre en una sola línea (con puntos suspensivos si es muy largo):
      dejarlo wrapear a 2 líneas empuja el resto del recibo y desborda la altura fija. */
-  .cliente-row { display: flex; align-items: baseline; gap: 2mm; padding: 0.8mm 2mm; border-bottom: 1px solid #000; }
-  .cliente-row .num { font-size: 7.7pt; color: #333; white-space: nowrap; flex-shrink: 0; }
+  .cliente-row { display: flex; align-items: baseline; gap: 0.667em; padding: 0.267em 0.667em; border-bottom: 1px solid #000; }
+  .cliente-row .num { font-size: 0.906em; color: #333; white-space: nowrap; flex-shrink: 0; }
   .cliente-row .nombre {
-    font-size: 11.2pt; font-weight: bold; text-transform: uppercase; line-height: 1.1;
+    font-size: 1.318em; font-weight: bold; text-transform: uppercase; line-height: 1.1;
     flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
 
-  .direccion { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 0.6mm 2mm; border-bottom: 1px solid #000; line-height: 1.4; }
+  .direccion { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 0.2em 0.667em; border-bottom: 1px solid #000; line-height: 1.4; }
   .direccion b { font-weight: bold; }
 
   table { width: 100%; border-collapse: collapse; }
-  th, td { border: 1px solid #000; padding: 0.6mm 1mm; text-align: left; }
-  th { font-size: 7.0pt; background: #f1f1f1; font-weight: 600; }
-  td { font-size: 7.8pt; }
+  th, td { border: 1px solid #000; padding: 0.2em 0.333em; text-align: left; }
+  th { font-size: 0.824em; background: #f1f1f1; font-weight: 600; }
+  td { font-size: 0.918em; }
 
-  .plan-row { flex: 1; display: flex; justify-content: space-between; align-items: center; gap: 2mm; padding: 0.6mm 2mm; border-bottom: 1px solid #000; line-height: 1.45; }
+  .plan-row { flex: 1; display: flex; justify-content: space-between; align-items: center; gap: 0.667em; padding: 0.2em 0.667em; border-bottom: 1px solid #000; line-height: 1.45; }
   .plan-row .der { text-align: right; white-space: nowrap; }
 
   /* Firma e importe: espacio fijo para completar a mano. */
-  .manual { flex: 0 0 8mm; display: flex; }
-  .manual div { flex: 1; border-right: 1px solid #000; padding: 1mm 1.5mm; font-weight: bold; font-size: 7.8pt; display: flex; align-items: center; }
+  .manual { flex: 0 0 2.668em; display: flex; }
+  .manual div { flex: 1; border-right: 1px solid #000; padding: 0.333em 0.5em; font-weight: bold; font-size: 0.918em; display: flex; align-items: center; }
   .manual div:last-child { border-right: 0; }
 
   @media screen {
     body { background: #e5e7eb; padding: 10mm; }
-    .hoja { background: #fff; margin: 0 auto 10mm; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+    .hoja { background: #fff; margin: 0 auto 10mm; max-width: 261mm; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+    .fila { height: 57mm; }
+    .recibo { font-size: 8.5pt; }
   }
 `;
 
