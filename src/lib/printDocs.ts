@@ -1,5 +1,5 @@
 import { MovimientoRendicion, Rendicion, RendicionItem } from '../types/database';
-import { formatDate } from './loanMath';
+import { formatDate, siguienteCiclo } from './loanMath';
 import { AjusteImpresion, getAjusteImpresion } from './printConfig';
 
 /** Datos de la empresa que salen en los recibos. */
@@ -196,16 +196,14 @@ function reciboHtml(r: Rendicion, item: RendicionItem, logo: string, duplicado: 
   // Recibo ya rendido: pasa a ser el comprobante de lo que se cobró
   const rendido = item.monto_cobrado !== null && item.monto_cobrado !== undefined;
   const cobrado = Number(item.monto_cobrado) || 0;
-  const imputaciones = item.imputaciones || [];
-  const fechaCobro = imputaciones[0]?.fecha || r.fecha_rendicion;
   // Fecha de cancelación: vence la última cuota del préstamo
   const cancelacion = item.vencimiento_final || item.vencimiento;
 
+  // Rendido: el recibo sale para el ciclo siguiente, que arranca el jueves
+  // posterior a la planilla
   const titulo = !rendido
     ? `VENCE ${esc(formatDate(item.vencimiento))}`
-    : cobrado > 0
-      ? `COBRADO ${esc(formatDate(fechaCobro))}`
-      : 'NO COBRADO';
+    : `NO COBRADO ${esc(formatDate(siguienteCiclo(r.hasta).desde))}`;
 
   const planRow = !rendido
     ? `
@@ -233,7 +231,7 @@ function reciboHtml(r: Rendicion, item: RendicionItem, logo: string, duplicado: 
           <div>IMPORTE: $__________</div>`
     : `
           <div>FECHA: ___/___/___</div>
-          <div>SALDO PENDIENTE: $__________</div>`;
+          <div>IMPORTE: $__________</div>`;
 
   return `
       <section class="recibo">
