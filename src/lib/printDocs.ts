@@ -1,5 +1,5 @@
 import { MovimientoRendicion, Rendicion, RendicionItem } from '../types/database';
-import { formatDate, juevesDesde, siguienteCiclo } from './loanMath';
+import { formatDate, juevesDesde, today } from './loanMath';
 import { AjusteImpresion, getAjusteImpresion } from './printConfig';
 
 /** Datos de la empresa que salen en los recibos. */
@@ -207,11 +207,11 @@ function reciboHtml(r: Rendicion, item: RendicionItem, logo: string, duplicado: 
   const cancelacion = item.vencimiento_final || item.vencimiento;
 
   // Sin rendir: el jueves siguiente al día en que se emitió la planilla (o ese
-  // mismo día, si se emitió un jueves). Rendido: el recibo sale para el ciclo
-  // siguiente, que arranca el jueves posterior a la planilla.
+  // mismo día, si se emitió un jueves). Rendido: el recibo se vuelve a emitir
+  // hoy para salir a cobrar, así que va el jueves siguiente a hoy.
   const titulo = !rendido
     ? esc(formatDate(juevesDesde(fechaLocal(r.fecha_emision))))
-    : `NO COBRADO ${esc(formatDate(siguienteCiclo(r.hasta).desde))}`;
+    : `NO COBRADO ${esc(formatDate(juevesDesde(today())))}`;
 
   const planRow = !rendido
     ? `
