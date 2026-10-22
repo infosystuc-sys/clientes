@@ -1,5 +1,5 @@
 import { MovimientoRendicion, Rendicion, RendicionItem } from '../types/database';
-import { formatDate, siguienteCiclo } from './loanMath';
+import { formatDate, juevesDesde, siguienteCiclo } from './loanMath';
 import { AjusteImpresion, getAjusteImpresion } from './printConfig';
 
 /** Datos de la empresa que salen en los recibos. */
@@ -187,6 +187,13 @@ const reciboCss = (a: AjusteImpresion) => `
   }
 `;
 
+/** `YYYY-MM-DD` en hora local de un timestamp (fecha_emision viene en UTC). */
+function fechaLocal(timestamp: string): string {
+  const d = new Date(timestamp);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 function reciboHtml(r: Rendicion, item: RendicionItem, logo: string, duplicado: boolean): string {
   const credito =
     !item.credito_numero || item.credito_numero === 0
@@ -199,10 +206,11 @@ function reciboHtml(r: Rendicion, item: RendicionItem, logo: string, duplicado: 
   // Fecha de cancelación: vence la última cuota del préstamo
   const cancelacion = item.vencimiento_final || item.vencimiento;
 
-  // Rendido: el recibo sale para el ciclo siguiente, que arranca el jueves
-  // posterior a la planilla
+  // Sin rendir: el jueves siguiente al día en que se emitió la planilla (o ese
+  // mismo día, si se emitió un jueves). Rendido: el recibo sale para el ciclo
+  // siguiente, que arranca el jueves posterior a la planilla.
   const titulo = !rendido
-    ? esc(formatDate(item.vencimiento))
+    ? esc(formatDate(juevesDesde(fechaLocal(r.fecha_emision))))
     : `NO COBRADO ${esc(formatDate(siguienteCiclo(r.hasta).desde))}`;
 
   const planRow = !rendido

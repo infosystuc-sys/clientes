@@ -56,6 +56,11 @@ export function siguienteCiclo(isoDate: string): { desde: string; hasta: string 
   return { desde: jueves, hasta: addDays(jueves, 2) };
 }
 
+/** El jueves de esa fecha o el siguiente: si `isoDate` ya es jueves, devuelve el mismo día. */
+export function juevesDesde(isoDate: string): string {
+  return addDays(isoDate, (4 - diaSemana(isoDate) + 7) % 7);
+}
+
 /** Suma semanas a una fecha `YYYY-MM-DD` sin arrastrar la zona horaria. */
 export function addWeeks(isoDate: string, weeks: number): string {
   const [y, m, d] = isoDate.split('-').map(Number);
