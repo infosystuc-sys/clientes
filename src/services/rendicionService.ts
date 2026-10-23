@@ -36,20 +36,6 @@ function setLocal<T>(key: string, data: T): void {
   localStorage.setItem(key, JSON.stringify(data));
 }
 
-/** Ids de cuotas que ya salieron en una planilla todavía sin rendir. */
-function installmentsEnPlanillasAbiertas(): Set<string> {
-  const abiertas = new Set(
-    getLocal<Rendicion[]>(LOCAL_RENDICIONES_KEY, [])
-      .filter(r => r.estado === 'emitida')
-      .map(r => r.id)
-  );
-  return new Set(
-    getLocal<RendicionItem[]>(LOCAL_ITEMS_KEY, [])
-      .filter(i => abiertas.has(i.rendicion_id))
-      .flatMap(cuotasDelRecibo)
-  );
-}
-
 /** Cuotas que agrupa un recibo (los viejos tienen sólo `installment_id`). */
 function cuotasDelRecibo(i: Pick<RendicionItem, 'installment_id' | 'installment_ids'>): string[] {
   return [...new Set([...(i.installment_ids || []), ...(i.installment_id ? [i.installment_id] : [])])];
@@ -72,7 +58,6 @@ function emitirLocal(params: EmisionParams): Rendicion {
   const loans = getLocal<Loan[]>(LOCAL_LOANS_KEY, []);
   const installments = getLocal<Installment[]>(LOCAL_INSTALLMENTS_KEY, []);
   const payments = getLocal<Payment[]>(LOCAL_PAYMENTS_KEY, []);
-  const yaEmitidas = installmentsEnPlanillasAbiertas();
 
   const candidatas = installments
     .map(i => {
@@ -89,8 +74,7 @@ function emitirLocal(params: EmisionParams): Rendicion {
         i.due_date <= hasta &&
         (incluirVencidas || i.due_date >= desde) &&
         (!cobrador || cobradorEfectivo === cobrador) &&
-        (!zona || client.zona === zona) &&
-        !yaEmitidas.has(i.id)
+        (!zona || client.zona === zona)
       );
     })
     .sort(
@@ -412,22 +396,6 @@ export const rendicionService = {
     return getLocal<MovimientoRendicion[]>(LOCAL_MOVIMIENTOS_KEY, [])
       .filter(m => m.rendicion_id === rendicionId)
       .sort((a, b) => (a.orden || 0) - (b.orden || 0));
-  },
-
-  /** Para la vista previa: cuotas que no se van a volver a emitir. */
-  async getInstallmentsEnPlanillasAbiertas(): Promise<Set<string>> {
-    const supabase = getSupabaseClient();
-    if (supabase) {
-      const { data, error } = await supabase
-        .from('rendicion_items')
-        // '*' y no columnas sueltas: si falta aplicar la migración 015, la consulta igual anda
-        .select('*, rendiciones!inner(estado)')
-        .eq('rendiciones.estado', 'emitida');
-      if (error) throw describeSupabaseError(error, 'No se pudieron cargar las planillas abiertas');
-      return new Set((data || []).flatMap((r: any) => cuotasDelRecibo(r)));
-    }
-
-    return installmentsEnPlanillasAbiertas();
   },
 
   /** Emite la planilla y sus recibos. Devuelve la planilla creada. */

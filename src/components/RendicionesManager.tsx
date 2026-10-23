@@ -77,7 +77,6 @@ export const RendicionesManager: React.FC<RendicionesManagerProps> = ({
   const [emitError, setEmitError] = useState<string | null>(null);
   const [recienEmitida, setRecienEmitida] = useState<Rendicion | null>(null);
 
-  const [yaEmitidas, setYaEmitidas] = useState<Set<string>>(new Set());
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const [rindiendo, setRindiendo] = useState<Rendicion | null>(null);
@@ -92,14 +91,6 @@ export const RendicionesManager: React.FC<RendicionesManagerProps> = ({
     }
   }, [rendiciones, recienEmitida]);
 
-  // Cuotas que ya están en una planilla sin rendir: no entran en la vista previa
-  useEffect(() => {
-    rendicionService
-      .getInstallmentsEnPlanillasAbiertas()
-      .then(setYaEmitidas)
-      .catch(() => setYaEmitidas(new Set()));
-  }, [rendiciones]);
-
   /**
    * Vista previa con los mismos filtros que aplica `emitir_rendicion` en la
    * base. Es orientativa: el número final lo decide la base al emitir.
@@ -112,8 +103,7 @@ export const RendicionesManager: React.FC<RendicionesManagerProps> = ({
         r.due_date <= hasta &&
         (incluirVencidas || r.due_date >= desde) &&
         (!cobrador || r.cobrador === cobrador) &&
-        (!zona || r.zona === zona) &&
-        !yaEmitidas.has(r.installment_id)
+        (!zona || r.zona === zona)
     );
     return {
       // Un recibo por préstamo, con todas sus cuotas adeudadas
@@ -121,7 +111,7 @@ export const RendicionesManager: React.FC<RendicionesManagerProps> = ({
       total: round2(rows.reduce((a, r) => a + Number(r.balance), 0)),
       clientes: new Set(rows.map(r => r.client_id)).size,
     };
-  }, [collection, desde, hasta, cobrador, zona, incluirVencidas, yaEmitidas]);
+  }, [collection, desde, hasta, cobrador, zona, incluirVencidas]);
 
   const setCiclo = (offset: number) => {
     setDesde(addWeeks(ciclo.desde, offset));
