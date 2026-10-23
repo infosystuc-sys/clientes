@@ -116,7 +116,8 @@ export const RendicionesManager: React.FC<RendicionesManagerProps> = ({
         !yaEmitidas.has(r.installment_id)
     );
     return {
-      cantidad: rows.length,
+      // Un recibo por préstamo, con todas sus cuotas adeudadas
+      cantidad: new Set(rows.map(r => r.loan_id)).size,
       total: round2(rows.reduce((a, r) => a + Number(r.balance), 0)),
       clientes: new Set(rows.map(r => r.client_id)).size,
     };
@@ -470,14 +471,6 @@ export const RendicionesManager: React.FC<RendicionesManagerProps> = ({
                       </td>
                       <td className="py-3 px-4">
                         <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => imprimir(r, 'recibos')}
-                            disabled={busyId !== null}
-                            className="p-2 rounded-lg bg-slate-800/60 hover:bg-slate-700/60 border border-slate-700 text-slate-300 disabled:opacity-40 transition-colors"
-                            title="Imprimir recibos"
-                          >
-                            {busyId === `${r.id}-recibos` ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Printer className="w-3.5 h-3.5" />}
-                          </button>
                           <button
                             onClick={() => imprimir(r, 'planilla')}
                             disabled={busyId !== null}

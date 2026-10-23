@@ -45,9 +45,14 @@ function installmentsEnPlanillasAbiertas(): Set<string> {
   );
   return new Set(
     getLocal<RendicionItem[]>(LOCAL_ITEMS_KEY, [])
-      .filter(i => abiertas.has(i.rendicion_id) && i.installment_id)
-      .map(i => i.installment_id as string)
+      .filter(i => abiertas.has(i.rendicion_id))
+      .flatMap(cuotasDelRecibo)
   );
+}
+
+/** Cuotas que agrupa un recibo (los viejos tienen sólo `installment_id`). */
+function cuotasDelRecibo(i: Pick<RendicionItem, 'installment_id' | 'installment_ids'>): string[] {
+  return [...new Set([...(i.installment_ids || []), ...(i.installment_id ? [i.installment_id] : [])])];
 }
 
 /**
@@ -101,6 +106,12 @@ function emitirLocal(params: EmisionParams): Rendicion {
     throw new Error('No hay cuotas pendientes para emitir con esos filtros.');
   }
 
+  // Un recibo por préstamo con toda la deuda a la fecha (las candidatas ya
+  // vienen ordenadas, así que el primer grupo de cada préstamo manda el orden)
+  const porPrestamo = new Map<string, typeof candidatas>();
+  candidatas.forEach(c => porPrestamo.set(c.loan.id, [...(porPrestamo.get(c.loan.id) || []), c]));
+  const grupos = [...porPrestamo.values()].map(g => [...g].sort((a, b) => a.i.number - b.i.number));
+
   const rendiciones = getLocal<Rendicion[]>(LOCAL_RENDICIONES_KEY, []);
   const rendicion: Rendicion = {
     id: crypto.randomUUID(),
@@ -113,7 +124,7 @@ function emitirLocal(params: EmisionParams): Rendicion {
     estado: 'emitida',
     fecha_emision: new Date().toISOString(),
     fecha_rendicion: null,
-    cantidad_recibos: candidatas.length,
+    cantidad_recibos: grupos.length,
     recibos_cargados: 0,
     total_ingresos: 0,
     total_egresos: 0,
@@ -122,7 +133,8 @@ function emitirLocal(params: EmisionParams): Rendicion {
     created_at: new Date().toISOString(),
   };
 
-  const items: RendicionItem[] = candidatas.map(({ i, loan, client }, idx) => {
+  const items: RendicionItem[] = grupos.map((grupo, idx) => {
+    const { i, loan, client } = grupo[0];
     const cuotasDelPrestamo = installments.filter(x => x.loan_id === loan.id);
     const pagado = round2(cuotasDelPrestamo.reduce((a, x) => a + Number(x.paid_amount), 0));
     const atraso = round2(
@@ -167,7 +179,10 @@ function emitirLocal(params: EmisionParams): Rendicion {
       atraso,
       cuota_numero: i.number,
       vencimiento: i.due_date,
-      importe: round2(Number(i.amount) - Number(i.paid_amount)),
+      importe: round2(grupo.reduce((a, g) => a + Number(g.i.amount) - Number(g.i.paid_amount), 0)),
+      installment_ids: grupo.map(g => g.i.id),
+      cuota_hasta: grupo[grupo.length - 1].i.number,
+      cuotas_incluidas: grupo.length,
       monto_cobrado: null,
       payment_id: null,
     };
@@ -405,12 +420,10 @@ export const rendicionService = {
     if (supabase) {
       const { data, error } = await supabase
         .from('rendicion_items')
-        .select('installment_id, rendiciones!inner(estado)')
+        .select('installment_id, installment_ids, rendiciones!inner(estado)')
         .eq('rendiciones.estado', 'emitida');
       if (error) throw describeSupabaseError(error, 'No se pudieron cargar las planillas abiertas');
-      return new Set(
-        (data || []).map((r: any) => r.installment_id).filter(Boolean) as string[]
-      );
+      return new Set((data || []).flatMap((r: any) => cuotasDelRecibo(r)));
     }
 
     return installmentsEnPlanillasAbiertas();
@@ -580,21 +593,20 @@ export const rendicionService = {
     const supabase = getSupabaseClient();
     if (supabase) {
       const [itemsRes, pagosRes] = await Promise.all([
-        supabase.from('rendicion_items').select('installment_id'),
+        supabase.from('rendicion_items').select('installment_id, installment_ids'),
         supabase.from('payments').select('installment_id').not('rendicion_item_id', 'is', null),
       ]);
       const error = itemsRes.error || pagosRes.error;
       if (error) throw describeSupabaseError(error, 'No se pudo verificar qué cuotas tienen recibo');
-      return new Set(
-        [...(itemsRes.data || []), ...(pagosRes.data || [])]
-          .map((r: any) => r.installment_id)
-          .filter(Boolean) as string[]
-      );
+      return new Set([
+        ...(itemsRes.data || []).flatMap((r: any) => cuotasDelRecibo(r)),
+        ...((pagosRes.data || []).map((r: any) => r.installment_id).filter(Boolean) as string[]),
+      ]);
     }
 
     return new Set(
       [
-        ...getLocal<RendicionItem[]>(LOCAL_ITEMS_KEY, []).map(i => i.installment_id),
+        ...getLocal<RendicionItem[]>(LOCAL_ITEMS_KEY, []).flatMap(cuotasDelRecibo),
         ...getLocal<Payment[]>(LOCAL_PAYMENTS_KEY, [])
           .filter(p => p.rendicion_item_id)
           .map(p => p.installment_id),
@@ -625,8 +637,10 @@ export const rendicionService = {
 
       let query = supabase.from('rendicion_items').select('*');
       query = imputados.length
-        ? query.or(`installment_id.eq.${installmentId},id.in.(${imputados.join(',')})`)
-        : query.eq('installment_id', installmentId);
+        ? query.or(
+            `installment_id.eq.${installmentId},installment_ids.cs.{${installmentId}},id.in.(${imputados.join(',')})`
+          )
+        : query.or(`installment_id.eq.${installmentId},installment_ids.cs.{${installmentId}}`);
       const { data: items, error } = await query;
       if (error) throw describeSupabaseError(error, 'No se pudo buscar el recibo de esta cuota');
       if (!items || items.length === 0) return null;
@@ -654,7 +668,7 @@ export const rendicionService = {
         .map(p => p.rendicion_item_id as string)
     );
     const propios = getLocal<RendicionItem[]>(LOCAL_ITEMS_KEY, []).filter(
-      i => i.installment_id === installmentId || imputados.has(i.id)
+      i => cuotasDelRecibo(i).includes(installmentId) || imputados.has(i.id)
     );
     if (propios.length === 0) return null;
 

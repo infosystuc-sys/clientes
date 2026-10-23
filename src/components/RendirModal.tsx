@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { MovimientoRendicion, Rendicion, RendicionItem, TipoMovimiento } from '../types/database';
 import { formatDate, formatMoney, round2, today } from '../lib/loanMath';
-import { clienteCredito } from '../lib/printDocs';
+import { clienteCredito, cuotasRecibo } from '../lib/printDocs';
 
 interface RendirModalProps {
   rendicion: Rendicion | null;
@@ -350,7 +350,7 @@ export const RendirModal: React.FC<RendirModalProps> = ({
                         </p>
                       </td>
                       <td className="py-2 px-3 text-[11px] text-slate-400">
-                        {item.cuota_numero}/{item.cuotas_total} · {formatDate(item.vencimiento)}
+                        {cuotasRecibo(item)} · {formatDate(item.vencimiento)}
                       </td>
                       <td className="py-2 px-3 text-right font-semibold text-white">
                         {formatMoney(item.importe)}

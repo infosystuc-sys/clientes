@@ -282,6 +282,11 @@ export interface RendicionItem {
 
   monto_cobrado?: number | null;
   payment_id?: string | null;
+  /** Todas las cuotas que agrupa el recibo (un recibo por préstamo). */
+  installment_ids?: string[] | null;
+  /** Última cuota incluida; la primera es `cuota_numero`. */
+  cuota_hasta?: number | null;
+  cuotas_incluidas?: number | null;
   /**
    * A qué cuotas se imputó lo cobrado en este recibo (puede ser más de una).
    * No es una columna: se arma al leer el recibo, a partir de los pagos.

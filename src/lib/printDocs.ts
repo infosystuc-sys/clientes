@@ -25,6 +25,16 @@ const n = (value: number | string | null | undefined) =>
 const money = (value: number | string | null | undefined) =>
   value === null || value === undefined ? '—' : `$ ${n(value)}`;
 
+/** Cuotas que cobra el recibo: "3/10" o "3 a 5/10". */
+export function cuotasRecibo(
+  item: Pick<RendicionItem, 'cuota_numero' | 'cuota_hasta' | 'cuotas_total'>
+): string {
+  const desde = item.cuota_numero ?? '—';
+  const rango =
+    item.cuota_hasta && item.cuota_hasta !== item.cuota_numero ? `${desde} a ${item.cuota_hasta}` : `${desde}`;
+  return `${rango}/${item.cuotas_total ?? '—'}`;
+}
+
 /** "1202/0": N° de cliente y N° de crédito, como en la planilla en papel. */
 export function clienteCredito(item: Pick<RendicionItem, 'cliente_numero' | 'credito_numero'>) {
   return `${item.cliente_numero ?? '—'}/${item.credito_numero ?? 0}`;
@@ -217,7 +227,9 @@ function reciboHtml(r: Rendicion, item: RendicionItem, logo: string, duplicado: 
     ? `
           <div>
             Plan: <b>${esc(item.cuotas_total ?? '—')} semanas: ${esc(money(item.valor_cuota))}</b><br>
-            A cobrar: <b>${esc(money(item.importe))}</b>
+            A cobrar: <b>${esc(money(item.importe))}</b>${
+              Number(item.cuotas_incluidas) > 1 ? ` (cuotas ${esc(cuotasRecibo(item))})` : ''
+            }
           </div>
           <div class="der">
             ${esc(credito)}<br>
@@ -432,7 +444,7 @@ export function buildPlanillaHtml(
         <td>${esc(i.domicilio)}</td>
         <td>${esc(i.zona || '')}</td>
         <td>${esc(i.rubro || '')}</td>
-        <td>${esc(i.cuota_numero ?? '')}/${esc(i.cuotas_total ?? '')} · ${esc(formatDate(i.vencimiento))}</td>
+        <td>${esc(cuotasRecibo(i))} · ${esc(formatDate(i.vencimiento))}</td>
         <td class="num">${esc(n(i.prestamo_total))}</td>
         <td class="num">${esc(n(i.prestamo_pagado))}</td>
         <td class="num">${esc(n(i.prestamo_saldo))}</td>
