@@ -420,7 +420,8 @@ export const rendicionService = {
     if (supabase) {
       const { data, error } = await supabase
         .from('rendicion_items')
-        .select('installment_id, installment_ids, rendiciones!inner(estado)')
+        // '*' y no columnas sueltas: si falta aplicar la migración 015, la consulta igual anda
+        .select('*, rendiciones!inner(estado)')
         .eq('rendiciones.estado', 'emitida');
       if (error) throw describeSupabaseError(error, 'No se pudieron cargar las planillas abiertas');
       return new Set((data || []).flatMap((r: any) => cuotasDelRecibo(r)));
@@ -593,7 +594,7 @@ export const rendicionService = {
     const supabase = getSupabaseClient();
     if (supabase) {
       const [itemsRes, pagosRes] = await Promise.all([
-        supabase.from('rendicion_items').select('installment_id, installment_ids'),
+        supabase.from('rendicion_items').select('*'),
         supabase.from('payments').select('installment_id').not('rendicion_item_id', 'is', null),
       ]);
       const error = itemsRes.error || pagosRes.error;
