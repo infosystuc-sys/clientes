@@ -419,13 +419,39 @@ const PLANILLA_CSS = `
 `;
 
 /** HTML de la planilla de rendición. Función pura, igual que los recibos. */
+/**
+ * Un renglón por préstamo, igual que el recibo. Las planillas emitidas antes
+ * del recibo único tienen un recibo por cuota: se suman en uno solo.
+ */
+function agruparPorPrestamo(items: RendicionItem[]): RendicionItem[] {
+  const grupos = new Map<string, RendicionItem[]>();
+  items.forEach(i => {
+    const clave = i.loan_id || i.id;
+    grupos.set(clave, [...(grupos.get(clave) || []), i]);
+  });
+  return [...grupos.values()].map(g => {
+    if (g.length === 1) return g[0];
+    const cargados = g.filter(i => i.monto_cobrado !== null && i.monto_cobrado !== undefined);
+    return {
+      ...g[0],
+      importe: g.reduce((a, i) => a + Number(i.importe), 0),
+      monto_cobrado: cargados.length ? cargados.reduce((a, i) => a + Number(i.monto_cobrado), 0) : null,
+      cuota_numero: Math.min(...g.map(i => i.cuota_numero ?? Infinity)),
+      cuota_hasta: Math.max(...g.map(i => i.cuota_hasta ?? i.cuota_numero ?? 0)),
+      cuotas_incluidas: g.reduce((a, i) => a + (Number(i.cuotas_incluidas) || 1), 0),
+      vencimiento: g.map(i => i.vencimiento).filter(Boolean).sort()[0] ?? g[0].vencimiento,
+    };
+  });
+}
+
 export function buildPlanillaHtml(
   rendicion: Rendicion,
-  items: RendicionItem[],
+  todos: RendicionItem[],
   logo: string,
   autoPrint = true,
   movimientos: MovimientoRendicion[] = []
 ): string {
+  const items = agruparPorPrestamo(todos);
   const rendida = rendicion.estado === 'rendida';
   const ingresos = movimientos.filter(m => m.tipo === 'ingreso').reduce((a, m) => a + Number(m.importe), 0);
   const egresos = movimientos.filter(m => m.tipo === 'egreso').reduce((a, m) => a + Number(m.importe), 0);
@@ -439,7 +465,7 @@ export function buildPlanillaHtml(
       <tr>
         <td>${esc(i.numero_recibo)}</td>
         <td>${esc(clienteCredito(i))}</td>
-        <td class="num">${esc(n(i.importe))}</td>
+        <td class="num">${esc(n(i.valor_cuota))}</td>
         <td>${esc(i.cliente_nombre)}</td>
         <td>${esc(i.domicilio)}</td>
         <td>${esc(i.zona || '')}</td>
@@ -448,6 +474,7 @@ export function buildPlanillaHtml(
         <td class="num">${esc(n(i.prestamo_total))}</td>
         <td class="num">${esc(n(i.prestamo_pagado))}</td>
         <td class="num">${esc(n(i.prestamo_saldo))}</td>
+        <td class="num">${esc(n(i.importe))}</td>
         <td class="num cobrado">${rendida ? esc(n(i.monto_cobrado ?? 0)) : ''}</td>
       </tr>`
     )
@@ -478,15 +505,15 @@ export function buildPlanillaHtml(
           <th>Rec.</th><th>N° Cliente</th><th class="num">Cuota</th><th>N. y Apellido</th>
           <th>Dirección</th><th>Zona</th><th>Rubro</th><th>Cuota N° · Vence</th>
           <th class="num">Monto</th><th class="num">Pagado</th><th class="num">Saldo</th>
-          <th class="cobrado">Cobrado</th>
+          <th class="num">A cobrar</th><th class="cobrado">Cobrado</th>
         </tr>
       </thead>
       <tbody>${filas}</tbody>
       <tfoot>
         <tr>
-          <td colspan="2">TOTAL</td>
-          <td class="num">${esc(n(totalCuotas))}</td>
+          <td colspan="3">TOTAL</td>
           <td colspan="8">RECIBOS ${esc(items.length)}</td>
+          <td class="num">${esc(n(totalCuotas))}</td>
           <td class="num">${rendida ? esc(n(totalCobrado)) : ''}</td>
         </tr>
       </tfoot>
