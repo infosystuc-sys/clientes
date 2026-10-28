@@ -392,19 +392,27 @@ export function printPrueba(ajuste: AjusteImpresion): void {
 // Planilla de rendición: hoja apaisada con la lista de recibos
 // ---------------------------------------------------------------------------
 
-const PLANILLA_CSS = `
-  @page { size: A4 landscape; margin: 9mm; }
+/**
+ * La planilla usa el mismo ajuste de impresora que los recibos (margen y
+ * desplazamiento de Configuración): con 9mm fijos la impresora cortaba el
+ * borde izquierdo y el título.
+ */
+const planillaCss = (a: AjusteImpresion) => `
+  @page { size: A4 landscape; margin: ${a.margenMm}mm; }
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #000; font-size: 9pt; }
+  body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #000; font-size: 8.5pt; }
+  main { position: relative; left: ${a.desplazarXMm}mm; top: ${a.desplazarYMm}mm; }
   header { display: flex; align-items: center; gap: 6mm; margin-bottom: 3mm; }
   header img { max-height: 16mm; }
   header h1 { font-size: 15pt; margin: 0; }
   header p { margin: 1mm 0 0; font-size: 9pt; }
   table { width: 100%; border-collapse: collapse; }
-  th, td { border: 1px solid #000; padding: 1.2mm 1.5mm; text-align: left; vertical-align: top; }
-  th { background: #e5e5e5; font-size: 8pt; text-transform: uppercase; }
+  th, td { border: 1px solid #000; padding: 1mm 1.2mm; text-align: left; vertical-align: top; }
+  th { background: #e5e5e5; font-size: 7.5pt; text-transform: uppercase; }
   tr { page-break-inside: avoid; }
   thead { display: table-header-group; }
+  /* El total va una sola vez, al final (no repetido en cada hoja) */
+  tfoot { display: table-row-group; }
   .num { text-align: right; white-space: nowrap; }
   .cobrado { width: 26mm; }
   tfoot td { font-weight: bold; background: #f3f3f3; }
@@ -449,9 +457,11 @@ export function buildPlanillaHtml(
   todos: RendicionItem[],
   logo: string,
   autoPrint = true,
-  movimientos: MovimientoRendicion[] = []
+  movimientos: MovimientoRendicion[] = [],
+  ajuste: AjusteImpresion = getAjusteImpresion()
 ): string {
   const items = agruparPorPrestamo(todos);
+  const totalValorCuota = items.reduce((a, i) => a + Number(i.valor_cuota || 0), 0);
   const rendida = rendicion.estado === 'rendida';
   const ingresos = movimientos.filter(m => m.tipo === 'ingreso').reduce((a, m) => a + Number(m.importe), 0);
   const egresos = movimientos.filter(m => m.tipo === 'egreso').reduce((a, m) => a + Number(m.importe), 0);
@@ -511,7 +521,8 @@ export function buildPlanillaHtml(
       <tbody>${filas}</tbody>
       <tfoot>
         <tr>
-          <td colspan="3">TOTAL</td>
+          <td colspan="2">TOTAL</td>
+          <td class="num">${esc(n(totalValorCuota))}</td>
           <td colspan="8">RECIBOS ${esc(items.length)}</td>
           <td class="num">${esc(n(totalCuotas))}</td>
           <td class="num">${rendida ? esc(n(totalCobrado)) : ''}</td>
@@ -563,7 +574,7 @@ export function buildPlanillaHtml(
     </div>
   </main>`;
 
-  return buildDocument(`Planilla ${rendicion.numero}`, body, PLANILLA_CSS, autoPrint);
+  return buildDocument(`Planilla ${rendicion.numero}`, body, planillaCss(ajuste), autoPrint);
 }
 
 export function printPlanilla(
