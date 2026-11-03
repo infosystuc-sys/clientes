@@ -338,7 +338,11 @@ export const RendirModal: React.FC<RendirModalProps> = ({
                   const raw = montos[item.id] || '';
                   const valor = parseMonto(raw);
                   const invalido = Number.isNaN(valor) || valor < 0;
-                  const parcial = !invalido && valor > 0 && valor < Number(item.importe);
+                  // Amarillo sólo si no llegó a cubrir la cuota semanal: con varias cuotas
+                  // atrasadas, pagar una cuota no es un pago parcial
+                  const cuotaSemanal = Math.min(Number(item.importe), Number(item.valor_cuota) || Number(item.importe));
+                  const parcial = !invalido && valor > 0 && valor < cuotaSemanal;
+                  const varias = Number(item.importe) > cuotaSemanal;
                   return (
                     <tr key={item.id} className="hover:bg-slate-800/30">
                       <td className="py-2 px-3 font-mono text-slate-500">{item.numero_recibo}</td>
@@ -371,10 +375,19 @@ export const RendirModal: React.FC<RendirModalProps> = ({
                                 : 'border-slate-800 text-slate-100 focus:border-emerald-500'
                             }`}
                           />
+                          {varias && (
+                            <button
+                              onClick={() => setMonto(item.id, toInput(cuotaSemanal))}
+                              className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-emerald-600/30 border border-slate-700 text-[10px] text-slate-300 font-semibold transition-colors"
+                              title={`Pagó una cuota (${formatMoney(cuotaSemanal)})`}
+                            >
+                              Cuota
+                            </button>
+                          )}
                           <button
                             onClick={() => setMonto(item.id, toInput(Number(item.importe)))}
                             className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-emerald-600/30 border border-slate-700 text-[10px] text-slate-300 font-semibold transition-colors"
-                            title="Pagó la cuota completa"
+                            title="Pagó todo lo adeudado del recibo"
                           >
                             Total
                           </button>
