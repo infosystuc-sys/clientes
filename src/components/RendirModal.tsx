@@ -11,8 +11,8 @@ import {
   Trash2,
 } from 'lucide-react';
 import { MovimientoRendicion, Rendicion, RendicionItem, TipoMovimiento } from '../types/database';
-import { formatDate, formatMoney, round2, today } from '../lib/loanMath';
-import { clienteCredito, cuotasRecibo } from '../lib/printDocs';
+import { formatDate, formatMoney, juevesDesde, round2, today } from '../lib/loanMath';
+import { clienteCredito, cuotasRecibo, fechaLocal } from '../lib/printDocs';
 
 interface RendirModalProps {
   rendicion: Rendicion | null;
@@ -98,7 +98,9 @@ export const RendirModal: React.FC<RendirModalProps> = ({
           .map(i => [i.id, toInput(Number(i.monto_cobrado))])
       )
     );
-    setFecha(rendicion?.fecha_rendicion || today());
+    // Lo cobrado queda con la fecha de la planilla: el jueves de su emisión
+    // (la misma que lleva el recibo arriba)
+    setFecha(rendicion?.fecha_emision ? juevesDesde(fechaLocal(rendicion.fecha_emision)) : today());
     setError(null);
   }, [rendicion?.id, items]);
 

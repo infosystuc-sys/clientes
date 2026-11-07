@@ -198,7 +198,7 @@ const reciboCss = (a: AjusteImpresion) => `
 `;
 
 /** `YYYY-MM-DD` en hora local de un timestamp (fecha_emision viene en UTC). */
-function fechaLocal(timestamp: string): string {
+export function fechaLocal(timestamp: string): string {
   const d = new Date(timestamp);
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
