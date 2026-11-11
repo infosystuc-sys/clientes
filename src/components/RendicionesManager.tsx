@@ -493,6 +493,15 @@ export const RendicionesManager: React.FC<RendicionesManagerProps> = ({
                               <Pencil className="w-3.5 h-3.5" /> Modificar
                             </button>
                           )}
+                          {rendida && (
+                            <button
+                              onClick={() => onAnular(r)}
+                              className="p-2 rounded-lg bg-rose-600/10 hover:bg-rose-600/20 border border-rose-500/30 text-rose-300 transition-colors"
+                              title="Eliminar planilla y los cobros que registró"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                           {!rendida && (
                             <>
                               <button
@@ -505,7 +514,11 @@ export const RendicionesManager: React.FC<RendicionesManagerProps> = ({
                               <button
                                 onClick={() => onAnular(r)}
                                 className="p-2 rounded-lg bg-rose-600/10 hover:bg-rose-600/20 border border-rose-500/30 text-rose-300 transition-colors"
-                                title="Anular planilla (sus cuotas vuelven a quedar disponibles)"
+                                title={
+                                  r.recibos_cargados > 0
+                                    ? 'Eliminar planilla y los cobros cargados'
+                                    : 'Anular planilla (sus cuotas vuelven a quedar disponibles)'
+                                }
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>

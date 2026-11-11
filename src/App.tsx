@@ -36,6 +36,7 @@ import {
 import { clientService } from './services/clientService';
 import { loanService } from './services/loanService';
 import { catalogService } from './services/catalogService';
+import { formatMoney } from './lib/loanMath';
 import { rendicionService } from './services/rendicionService';
 import { getSupabaseCredentials, getSupabaseClient } from './lib/supabase';
 import { CheckCircle2, AlertCircle, Loader2, RefreshCw } from 'lucide-react';
@@ -438,13 +439,19 @@ export default function App() {
   };
 
   const handleAnularRendicion = async (rendicion: Rendicion) => {
+    const conCobros = rendicion.estado === 'rendida' || (rendicion.recibos_cargados || 0) > 0;
     const confirmed = window.confirm(
-      `¿Anular la planilla N° ${rendicion.numero}? Sus ${rendicion.cantidad_recibos} recibos quedan sin efecto y las cuotas vuelven a estar disponibles para emitir. Si ya se imprimieron, retiralos de la calle.`
+      conCobros
+        ? `¿Eliminar la planilla N° ${rendicion.numero}? Se borran sus ${rendicion.cantidad_recibos} recibos, sus ingresos y egresos y TODOS los cobros que registró (${formatMoney(Number(rendicion.total_cobrado) || 0)}): las cuotas vuelven a quedar impagas. No se puede deshacer.`
+        : `¿Anular la planilla N° ${rendicion.numero}? Sus ${rendicion.cantidad_recibos} recibos quedan sin efecto y las cuotas vuelven a estar disponibles para emitir. Si ya se imprimieron, retiralos de la calle.`
     );
     if (!confirmed) return;
 
     try {
-      await runAction(() => rendicionService.anular(rendicion), `Planilla N° ${rendicion.numero} anulada.`);
+      await runAction(
+        () => rendicionService.anular(rendicion),
+        conCobros ? `Planilla N° ${rendicion.numero} eliminada con sus cobros.` : `Planilla N° ${rendicion.numero} anulada.`
+      );
     } catch {
       /* el toast ya informó el error */
     }

@@ -663,22 +663,30 @@ export const rendicionService = {
     return { rendicion, item: (await conDatosActuales([item]))[0] };
   },
 
-  /** Anula una planilla emitida. Una rendida no se puede anular. */
+  /**
+   * Elimina una planilla. Si está rendida o tiene cobros cargados, también se
+   * borran los pagos que generaron sus recibos (las cuotas vuelven a quedar
+   * impagas).
+   */
   async anular(rendicion: Rendicion): Promise<void> {
+    const conCobros = rendicion.estado === 'rendida' || (rendicion.recibos_cargados || 0) > 0;
     const supabase = getSupabaseClient();
     if (supabase) {
-      const { error } = await supabase.from('rendiciones').delete().eq('id', rendicion.id);
-      if (error) throw describeSupabaseError(error, 'No se pudo anular la planilla');
+      const { error } = conCobros
+        ? await supabase.rpc('eliminar_rendicion', { p_rendicion_id: rendicion.id })
+        : await supabase.from('rendiciones').delete().eq('id', rendicion.id);
+      if (error) throw describeSupabaseError(error, 'No se pudo eliminar la planilla');
       return;
     }
 
-    if (rendicion.estado === 'rendida') {
-      throw new Error(`La planilla N° ${rendicion.numero} ya fue rendida y no se puede anular.`);
-    }
-    if ((rendicion.recibos_cargados || 0) > 0) {
-      throw new Error(
-        `La planilla N° ${rendicion.numero} tiene cobros cargados. Vaciá los importes y guardá antes de anularla.`
+    if (conCobros) {
+      const items = getLocal<RendicionItem[]>(LOCAL_ITEMS_KEY, []).filter(i => i.rendicion_id === rendicion.id);
+      const idsItems = new Set(items.map(i => i.id));
+      const idsPagos = new Set(items.map(i => i.payment_id).filter(Boolean));
+      const pagos = getLocal<Payment[]>(LOCAL_PAYMENTS_KEY, []).filter(
+        p => (p.rendicion_item_id && idsItems.has(p.rendicion_item_id)) || idsPagos.has(p.id)
       );
+      for (const pago of pagos) await loanService.deletePayment(pago);
     }
     setLocal(
       LOCAL_RENDICIONES_KEY,

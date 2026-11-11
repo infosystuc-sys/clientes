@@ -9,10 +9,20 @@ import {
   Save,
   Plus,
   Trash2,
+  Search,
 } from 'lucide-react';
 import { MovimientoRendicion, Rendicion, RendicionItem, TipoMovimiento } from '../types/database';
 import { formatDate, formatMoney, juevesDesde, round2, today } from '../lib/loanMath';
 import { clienteCredito, cuotasRecibo, fechaLocal } from '../lib/printDocs';
+
+/** Minúsculas y sin acentos, para buscar. */
+function normalizar(texto: string | null | undefined): string {
+  return (texto || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
 
 interface RendirModalProps {
   rendicion: Rendicion | null;
@@ -84,6 +94,7 @@ export const RendirModal: React.FC<RendirModalProps> = ({
   const [filas, setFilas] = useState<FilaMovimiento[]>([]);
   const [tab, setTab] = useState<'recibos' | 'movimientos'>('recibos');
   const [fecha, setFecha] = useState(today());
+  const [buscar, setBuscar] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -107,6 +118,17 @@ export const RendirModal: React.FC<RendirModalProps> = ({
     );
     setError(null);
   }, [rendicion?.id, items]);
+
+  useEffect(() => setBuscar(''), [rendicion?.id]);
+
+  // Filtro por nombre o N° de cliente (sin distinguir mayúsculas ni acentos)
+  const visibles = useMemo(() => {
+    const q = normalizar(buscar);
+    if (!q) return items;
+    return items.filter(
+      i => normalizar(i.cliente_nombre).includes(q) || clienteCredito(i).startsWith(buscar.trim())
+    );
+  }, [items, buscar]);
 
   useEffect(() => {
     setFilas(
@@ -278,7 +300,7 @@ export const RendirModal: React.FC<RendirModalProps> = ({
         <div className="px-6 py-3 border-b border-slate-800 flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-1.5">
             <button onClick={() => setTab('recibos')} className={tabClass(tab === 'recibos')}>
-              Recibos ({items.length})
+              Recibos ({buscar.trim() ? `${visibles.length} de ${items.length}` : items.length})
             </button>
             <button onClick={() => setTab('movimientos')} className={tabClass(tab === 'movimientos')}>
               Ingresos y egresos ({filas.length})
@@ -293,6 +315,27 @@ export const RendirModal: React.FC<RendirModalProps> = ({
               className="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-emerald-500"
             />
           </div>
+          {tab === 'recibos' && (
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+              <input
+                type="text"
+                value={buscar}
+                onChange={e => setBuscar(e.target.value)}
+                placeholder="Buscar cliente..."
+                className="w-48 pl-8 pr-7 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-emerald-500"
+              />
+              {buscar && (
+                <button
+                  onClick={() => setBuscar('')}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-500 hover:text-slate-200"
+                  title="Quitar filtro"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          )}
           <div className="flex-1" />
           {tab === 'recibos' ? (
             <>
@@ -340,7 +383,14 @@ export const RendirModal: React.FC<RendirModalProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-slate-300">
-                {items.map(item => {
+                {visibles.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-slate-500">
+                      Ningún cliente coincide con "{buscar}".
+                    </td>
+                  </tr>
+                )}
+                {visibles.map(item => {
                   const raw = montos[item.id] || '';
                   const valor = parseMonto(raw);
                   const invalido = Number.isNaN(valor) || valor < 0;
