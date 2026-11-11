@@ -224,6 +224,8 @@ export interface Rendicion {
   estado: RendicionEstado;
   fecha_emision: string;
   fecha_rendicion?: string | null;
+  /** Fecha de pago de lo cobrado en la planilla (la del modal de rendición). */
+  fecha_cobro?: string | null;
   cantidad_recibos: number;
   /** Recibos con importe ya cargado (aunque la planilla siga abierta). */
   recibos_cargados: number;

@@ -510,6 +510,18 @@ export const rendicionService = {
       item.payment_id = paymentId;
     }
 
+    // Todo lo cobrado en la planilla queda con la fecha de cobro indicada
+    const idsItems = new Set(propios.map(i => i.id));
+    const idsPagos = new Set(propios.map(i => i.payment_id).filter(Boolean));
+    setLocal(
+      LOCAL_PAYMENTS_KEY,
+      getLocal<Payment[]>(LOCAL_PAYMENTS_KEY, []).map(p =>
+        (p.rendicion_item_id && idsItems.has(p.rendicion_item_id)) || idsPagos.has(p.id)
+          ? { ...p, paid_at: fecha }
+          : p
+      )
+    );
+
     const cargados = propios.filter(i => i.monto_cobrado !== null && i.monto_cobrado !== undefined);
     const total = round2(cargados.reduce((a, i) => a + Number(i.monto_cobrado), 0));
 
@@ -546,7 +558,8 @@ export const rendicionService = {
               total_ingresos: sumar('ingreso'),
               total_egresos: sumar('egreso'),
               estado: cierra ? 'rendida' : r.estado,
-              fecha_rendicion: cerrar && r.estado === 'emitida' ? fecha : r.fecha_rendicion,
+              fecha_cobro: fecha,
+              fecha_rendicion: cierra ? fecha : r.fecha_rendicion,
             }
           : r
       )

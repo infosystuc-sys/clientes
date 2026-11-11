@@ -98,9 +98,13 @@ export const RendirModal: React.FC<RendirModalProps> = ({
           .map(i => [i.id, toInput(Number(i.monto_cobrado))])
       )
     );
-    // Lo cobrado queda con la fecha de la planilla: el jueves de su emisión
-    // (la misma que lleva el recibo arriba)
-    setFecha(rendicion?.fecha_emision ? juevesDesde(fechaLocal(rendicion.fecha_emision)) : today());
+    // La fecha guardada en la planilla; si todavía no se cargó nada, el jueves
+    // de su emisión (la misma que lleva el recibo arriba)
+    setFecha(
+      rendicion?.fecha_cobro ||
+        rendicion?.fecha_rendicion ||
+        (rendicion?.fecha_emision ? juevesDesde(fechaLocal(rendicion.fecha_emision)) : today())
+    );
     setError(null);
   }, [rendicion?.id, items]);
 
